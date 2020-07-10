@@ -182,3 +182,32 @@ function ref_add_connections!(ref::Dict{Symbol,<:Any}, data::Dict{String,<:Any})
     end
 end
 
+
+"computes storage bounds"
+function ref_calc_storage_injection_bounds(storage, buses)
+    injection_lb = Dict()
+    injection_ub = Dict()
+
+    for (i, strg) in storage
+        connections = strg["connections"]
+        ncnds = length(connections)
+        injection_lb[i] = fill(-Inf, ncnds)
+        injection_ub[i] = fill( Inf, ncnds)
+
+        if haskey(strg, "thermal_rating")
+            injection_lb[i] = max.(injection_lb[i], -strg["thermal_rating"])
+            injection_ub[i] = min.(injection_ub[i],  strg["thermal_rating"])
+        end
+
+        if haskey(strg, "current_rating")
+            for (j, t) in connections
+                vmax = buses[strg["storage_bus"]]["vmax"][findfirst(isequal(t), buses[strg["storage_bus"]]["terminals"])]
+
+                injection_lb[i][j] = max(injection_lb[i][j], -strg["current_rating"][j]*vmax)
+                injection_ub[i][j] = min(injection_ub[i][j],  strg["current_rating"][j]*vmax)
+            end
+        end
+    end
+
+    return injection_lb, injection_ub
+end
