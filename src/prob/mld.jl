@@ -38,6 +38,8 @@ function build_mc_mld(pm::_PM.AbstractPowerModel)
     variable_mc_storage_power_mi_on_off(pm, relax=true)
 
     variable_mc_load_indicator(pm; relax=true)
+    variable_mc_load_setpoint(pm)
+
     variable_mc_shunt_indicator(pm; relax=true)
 
     constraint_mc_model_voltage(pm)
@@ -52,8 +54,12 @@ function build_mc_mld(pm::_PM.AbstractPowerModel)
         constraint_mc_gen_power_on_off(pm, i)
     end
 
+    for id in ids(pm, :load)
+        constraint_mc_load_setpoint(pm, id)
+    end
+
     for i in ids(pm, :bus)
-        constraint_mc_shed_power_balance(pm, i)
+        constraint_mc_shed_load_power_balance(pm, i)
     end
 
     for i in ids(pm, :storage)
