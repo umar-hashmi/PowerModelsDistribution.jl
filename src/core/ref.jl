@@ -148,3 +148,37 @@ function _calc_mc_transformer_Tvi(pm::_PM.AbstractPowerModel, i::Int; nw=pm.cnw)
     Cv_to *= vmult
     return (Tv_fr,Tv_im,Ti_fr,Ti_im,Cv_to)
 end
+
+
+function ref_add_connections!(ref::Dict{Symbol,<:Any}, data::Dict{String,<:Any})
+    if ismultinetwork(data)
+        nws_data = data["nw"]
+    else
+        nws_data = Dict("0" => data)
+    end
+
+    for (n, nw) in nws_data
+        n = parse(Int, n)
+        nw_ref = ref[:nw][n]
+
+        for (type, status) in [("gen", "gen_status"), ("load", "status"), ("shunt", "status"), ("storage", "status")]
+            nw_ref[Symbol("bus_conns_$(type)")] = Dict{Int,Any}([(bus["index"], []) for (_,bus) in data["bus"]])
+            for (_,obj) in get(data, type, Dict())
+                if obj[status] != 0
+                    push!(nw_ref[Symbol("bus_conns_$(type)")][obj["$(type)_bus"]], (obj["index"], obj["connections"]))
+                end
+            end
+        end
+
+        for (type, status) in [("transformer", "status"), ("branch", "br_status"), ("switch", "status")]
+            nw_ref[Symbol("bus_arcs_conns_$(type)")] = Dict{Int,Any}([(bus["index"], []) for (_,bus) in data["bus"]])
+            for (_,obj) in get(data, type, Dict())
+                if obj[status] != 0
+                    push!(nw_ref[Symbol("bus_arcs_conns_$(type)")][obj["f_bus"]], ((obj["index"], obj["f_bus"], obj["t_bus"]), obj["f_connections"]))
+                    push!(nw_ref[Symbol("bus_arcs_conns_$(type)")][obj["t_bus"]], ((obj["index"], obj["t_bus"], obj["f_bus"]), obj["t_connections"]))
+                end
+            end
+        end
+    end
+end
+
