@@ -231,16 +231,13 @@ end
 "KCL including transformer arcs and load variables."
 function constraint_mc_load_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
     bus = ref(pm, nw, :bus, i)
-    bus_arcs = ref(pm, nw, :bus_arcs, i)
-    bus_arcs_sw = ref(pm, nw, :bus_arcs_sw, i)
-    bus_arcs_trans = ref(pm, nw, :bus_arcs_trans, i)
-    bus_gens = ref(pm, nw, :bus_gens, i)
-    bus_storage = ref(pm, nw, :bus_storage, i)
-    bus_loads = ref(pm, nw, :bus_loads, i)
-    bus_shunts = ref(pm, nw, :bus_shunts, i)
-
-    bus_gs = Dict(k => ref(pm, nw, :shunt, k, "gs") for k in bus_shunts)
-    bus_bs = Dict(k => ref(pm, nw, :shunt, k, "bs") for k in bus_shunts)
+    bus_arcs = ref(pm, nw, :bus_arcs_conns_branch, i)
+    bus_arcs_sw = ref(pm, nw, :bus_arcs_conns_switch, i)
+    bus_arcs_trans = ref(pm, nw, :bus_arcs_conns_transformer, i)
+    bus_gens = ref(pm, nw, :bus_conns_gen, i)
+    bus_storage = ref(pm, nw, :bus_conns_storage, i)
+    bus_loads = ref(pm, nw, :bus_conns_load, i)
+    bus_shunts = ref(pm, nw, :bus_conns_shunt, i)
 
     if !haskey(con(pm, nw), :lam_kcl_r)
         con(pm, nw)[:lam_kcl_r] = Dict{Int,Array{JuMP.ConstraintRef}}()
@@ -250,7 +247,7 @@ function constraint_mc_load_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw
         con(pm, nw)[:lam_kcl_i] = Dict{Int,Array{JuMP.ConstraintRef}}()
     end
 
-    constraint_mc_load_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
+    constraint_mc_load_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
 end
 
 
@@ -320,7 +317,7 @@ function constraint_mc_gen_setpoint(pm::_PM.AbstractPowerModel, id::Int; nw::Int
     generator = ref(pm, nw, :gen, id)
     bus = ref(pm, nw,:bus, generator["gen_bus"])
 
-    N = 3
+    N = length(generator["connections"])
     pmin = get(generator, "pmin", fill(-Inf, N))
     pmax = get(generator, "pmax", fill( Inf, N))
     qmin = get(generator, "qmin", fill(-Inf, N))
@@ -335,21 +332,15 @@ end
 
 
 "KCL for load shed problem with transformers"
-function constraint_mc_shed_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
+function constraint_mc_shed_load_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
     bus = ref(pm, nw, :bus, i)
-    bus_arcs = ref(pm, nw, :bus_arcs, i)
-    bus_arcs_sw = ref(pm, nw, :bus_arcs_sw, i)
-    bus_arcs_trans = ref(pm, nw, :bus_arcs_trans, i)
-    bus_gens = ref(pm, nw, :bus_gens, i)
-    bus_storage = ref(pm, nw, :bus_storage, i)
-    bus_loads = ref(pm, nw, :bus_loads, i)
-    bus_shunts = ref(pm, nw, :bus_shunts, i)
-
-    bus_pd = Dict(k => ref(pm, nw, :load, k, "pd") for k in bus_loads)
-    bus_qd = Dict(k => ref(pm, nw, :load, k, "qd") for k in bus_loads)
-
-    bus_gs = Dict(k => ref(pm, nw, :shunt, k, "gs") for k in bus_shunts)
-    bus_bs = Dict(k => ref(pm, nw, :shunt, k, "bs") for k in bus_shunts)
+    bus_arcs = ref(pm, nw, :bus_arcs_conns_branch, i)
+    bus_arcs_sw = ref(pm, nw, :bus_arcs_conns_switch, i)
+    bus_arcs_trans = ref(pm, nw, :bus_arcs_conns_transformer, i)
+    bus_gens = ref(pm, nw, :bus_conns_gen, i)
+    bus_storage = ref(pm, nw, :bus_conns_storage, i)
+    bus_loads = ref(pm, nw, :bus_conns_load, i)
+    bus_shunts = ref(pm, nw, :bus_conns_shunt, i)
 
     if !haskey(con(pm, nw), :lam_kcl_r)
         con(pm, nw)[:lam_kcl_r] = Dict{Int,Array{JuMP.ConstraintRef}}()
@@ -359,7 +350,7 @@ function constraint_mc_shed_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw
         con(pm, nw)[:lam_kcl_i] = Dict{Int,Array{JuMP.ConstraintRef}}()
     end
 
-    constraint_mc_shed_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
+    constraint_mc_shed_load_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
 end
 
 
