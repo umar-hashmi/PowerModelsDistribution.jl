@@ -403,15 +403,18 @@ upper bound on the voltage magnitude of the connected buses.
 function _calc_branch_power_max(branch::Dict, bus::Dict)
     bounds = []
 
+    terminals = bus["terminals"]
+    connections = bus["bus_i"] == branch["f_bus"] ? branch["f_connections"] : branch["t_connections"]
+    connections = [findfirst(isequal(cnd), terminals) for cnd in connections]
+
     if haskey(branch, "c_rating_a") && haskey(bus, "vmax")
-        push!(bounds, branch["c_rating_a"].*bus["vmax"])
+        push!(bounds, branch["c_rating_a"] .* bus["vmax"][connections])
     end
     if haskey(branch, "rate_a")
         push!(bounds, branch["rate_a"])
     end
 
-    N = 3 #TODO update for 4-wire
-    return min.(fill(Inf, N), bounds...)
+    return min.(fill(Inf, length(connections)), bounds...)
 end
 
 
