@@ -189,7 +189,7 @@ end
 """
 Same as variable_mx_real, but adds symmetry structure
 """
-function variable_mx_real_symmetric(model::JuMP.Model, indices::Array{T,1}, N::Int;
+function variable_mx_real_symmetric(model::JuMP.Model, indices::Array{T,1}, N::Dict{Int,Int};
         upper_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing, lower_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         name="", prefix="") where T
     # the output is a dictionary of (index, matrix) pairs
@@ -197,14 +197,15 @@ function variable_mx_real_symmetric(model::JuMP.Model, indices::Array{T,1}, N::I
     # will also contain inverted variables (upper triangle) and potentially
     # constants (zero) on the diagonal
     dict_mat_vars = Dict{T, Array{Any, 2}}([(index, zeros(N,N)) for index in indices])
-    for n in 1:N
-        for m in 1:n
-            varname = isempty(prefix) ? "$(name)_$(n)$(m)" : "$(prefix)_$(name)_$(n)$(m)"
-            # create the lower triangle element (n,m) for all indices
-            mat_nm = _make_matrix_variable_element(model, indices, n, m;
-                upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)
-            # unpack element (n,m) to the correct place in the ouput dict
-            for index in indices
+    for index in indices
+        for n in 1:N[index]
+            for m in 1:n
+                varname = isempty(prefix) ? "$(name)_$(n)$(m)" : "$(prefix)_$(name)_$(n)$(m)"
+                # create the lower triangle element (n,m) for all indices
+                mat_nm = _make_matrix_variable_element(model, indices, n, m;
+                    upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)
+                # unpack element (n,m) to the correct place in the ouput dict
+
                 # a diagonal element only appears on the diagonal
                 if n==m
                     dict_mat_vars[index][n,n] = mat_nm[index]
@@ -228,7 +229,7 @@ end
 """
 Same as variable_mx_real, but adds skew-symmetry structure.
 """
-function variable_mx_real_skewsymmetric(model::JuMP.Model, indices::Array{T,1}, N::Int;
+function variable_mx_real_skewsymmetric(model::JuMP.Model, indices::Array{T,1}, N::Dict{Int,Int};
         upper_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing, lower_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         set_diag_to_zero::Bool=true, name="", prefix="") where T
     # the output is a dictionary of (index, matrix) pairs
@@ -236,20 +237,20 @@ function variable_mx_real_skewsymmetric(model::JuMP.Model, indices::Array{T,1}, 
     # will also contain inverted variables (upper triangle) and potentially
     # constants (zero) on the diagonal
     dict_mat_vars = Dict{T, Array{JuMP.GenericAffExpr{Float64,JuMP.VariableRef}, 2}}([(index, zeros(N,N)) for index in indices])
-    for n in 1:N
-        for m in 1:n
-            varname = isempty(prefix) ? "$(name)_$(n)$(m)" : "$(prefix)_$(name)_$(n)$(m)"
-            # create the lower triangle element (n,m) for all indices
-            # if diagonal element (n,m) is zero
-            if m==n && set_diag_to_zero
-                mat_nm = Dict{T, Float64}([(index, 0.0) for index in indices])
-            # otherwise, create JuMP variables
-            else
-                mat_nm = _make_matrix_variable_element(model, indices, n, m;
-                    upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)
-            end
-            # unpack element (n,m) to the correct place in the ouput dict
-            for index in indices
+    for index in indices
+        for n in 1:N[index]
+            for m in 1:n
+                varname = isempty(prefix) ? "$(name)_$(n)$(m)" : "$(prefix)_$(name)_$(n)$(m)"
+                # create the lower triangle element (n,m) for all indices
+                # if diagonal element (n,m) is zero
+                if m==n && set_diag_to_zero
+                    mat_nm = Dict{T, Float64}([(index, 0.0) for index in indices])
+                # otherwise, create JuMP variables
+                else
+                    mat_nm = _make_matrix_variable_element(model, indices, n, m;
+                        upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)
+                end
+                # unpack element (n,m) to the correct place in the ouput dict
                 # a diagonal element only appears on the diagonal
                 if n==m
                     dict_mat_vars[index][n,n] = mat_nm[index]
@@ -269,7 +270,7 @@ end
 """
 Returns a pair of symmetric and skew-symmetric matrix variables.
 """
-function variable_mx_hermitian(model::JuMP.Model, indices::Array{T,1}, N::Int;
+function variable_mx_hermitian(model::JuMP.Model, indices::Array{T,1}, N::Dict{Int,Int};
         upper_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing, lower_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         symm_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         sqrt_upper_bound::Union{Missing, Dict{T,<:Array{<:Real,1}}}=missing,
@@ -291,8 +292,8 @@ function variable_mx_hermitian(model::JuMP.Model, indices::Array{T,1}, N::Int;
         lower_bound = Dict([(k,-w) for (k,w) in upper_bound])
 
         if !ismissing(sqrt_lower_bound)
-            for c in 1:N
-                for (id, w) in lower_bound
+            for (id, w) in lower_bound
+                for c in 1:N[id]
                     w[c,c] = sqrt_lower_bound[id][c]^2
                     #@assert(w[c,c]>=0)
                 end
@@ -302,7 +303,7 @@ function variable_mx_hermitian(model::JuMP.Model, indices::Array{T,1}, N::Int;
 
     if set_lower_bound_diag_to_zero
         for (id, M) in lower_bound
-            for c in 1:N
+            for c in 1:N[id]
                 M[c, c] = 0.0
             end
         end
