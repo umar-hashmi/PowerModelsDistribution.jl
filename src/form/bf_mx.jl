@@ -498,10 +498,10 @@ All loads need a current variable; for wye loads, this variable will be in the
 wye reference frame whilst for delta currents it will be in the delta reference
 frame.
 """
-function variable_mc_load_current(pm::AbstractUBFModels, load_ids::Array{Int,1}; nw=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_load_current(pm::AbstractUBFModels, load_ids::Array{Int,1}; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
 
-    ncnds = length(conductor_ids(pm, nw))
+    ncnds = Dict{Int,Int}(i => length(load["connections"]) for (i,load) in ref(pm, nw, :load))
     # calculate bounds
     cmin = Dict{eltype(load_ids), Array{Real,1}}()
     cmax = Dict{eltype(load_ids), Array{Real,1}}()
@@ -607,6 +607,7 @@ Creates the constraints modelling the (relaxed) voltage-dependent loads.
 function constraint_mc_load_setpoint(pm::AbstractUBFModels, load_id::Int; nw::Int=pm.cnw, report::Bool=true)
     # shared variables and parameters
     load = ref(pm, nw, :load, load_id)
+    connections = load["connections"]
     pd0 = load["pd"]
     qd0 = load["qd"]
     bus_id = load["load_bus"]
@@ -623,8 +624,8 @@ function constraint_mc_load_setpoint(pm::AbstractUBFModels, load_id::Int; nw::In
     # take care of connections
     if load["configuration"]==WYE
         if load["model"]==POWER
-            var(pm, nw, :pd)[load_id] = pd0
-            var(pm, nw, :qd)[load_id] = qd0
+            var(pm, nw, :pd)[load_id] = JuMP.Containers.DenseAxisArray(pd0, connections)
+            var(pm, nw, :qd)[load_id] = JuMP.Containers.DenseAxisArray(qd0, connections)
         elseif load["model"]==IMPEDANCE
             w = var(pm, nw, :w)[bus_id]
             var(pm, nw, :pd)[load_id] = a.*w
@@ -634,9 +635,9 @@ function constraint_mc_load_setpoint(pm::AbstractUBFModels, load_id::Int; nw::In
             Wr = var(pm, nw, :Wr, bus_id)
             pd = var(pm, nw, :pd)[load_id]
             qd = var(pm, nw, :qd)[load_id]
-            for c in 1:ncnds
-                constraint_pqw(pm.model, Wr[c,c], pd[c], a[c], alpha[c], wmin[c], wmax[c], pmin[c], pmax[c])
-                constraint_pqw(pm.model, Wr[c,c], qd[c], b[c], beta[c], wmin[c], wmax[c], qmin[c], qmax[c])
+            for (idx, c) in enumerate(load["connections"])
+                constraint_pqw(pm.model, Wr[c,c], pd[c], a[idx], alpha[idx], wmin[idx], wmax[idx], pmin[idx], pmax[idx])
+                constraint_pqw(pm.model, Wr[c,c], qd[c], b[idx], beta[idx], wmin[idx], wmax[idx], qmin[idx], qmax[idx])
             end
         end
         # :pd_bus is identical to :pd now

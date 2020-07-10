@@ -2,8 +2,8 @@ import LinearAlgebra: diag
 
 
 "`vm[i] == vmref`"
-function constraint_mc_voltage_magnitude_only(pm::_PM.AbstractWModels, n::Int, i::Int, vmref)
-    w = var(pm, n, :w, i)
+function constraint_mc_voltage_magnitude_only(pm::_PM.AbstractWModels, nw::Int, i::Int, vmref::Vector{<:Real})
+    w = [var(pm, nw, :w, i)[t] for t in ref(pm, nw, :bus, i)["terminals"]]
     JuMP.@constraint(pm.model, w .== vmref.^2)
 end
 
