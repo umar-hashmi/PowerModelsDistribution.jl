@@ -391,8 +391,7 @@ function _calc_transformer_current_max_frto(trans::Dict, bus_fr::Dict, bus_to::D
     # end
 
 
-    N = 3 #TODO update for 4-wire
-    return min.(fill(Inf, N), bounds_fr...), min.(fill(Inf, N), bounds_to...)
+    return min.(fill(Inf, length(trans["f_connections"])), bounds_fr...), min.(fill(Inf, length(trans["f_connections"])), bounds_to...)
 end
 
 
