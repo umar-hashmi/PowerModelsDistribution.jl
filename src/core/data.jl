@@ -258,14 +258,17 @@ Returns the voltage magnitude bounds for the individual load elements in a
 multiphase load. These are inferred from vmin/vmax for wye loads and from
 _calc_bus_vm_ll_bounds for delta loads.
 """
-function _calc_load_vbounds(load::Dict, bus::Dict)
+function _calc_load_vbounds(load::Dict{String,<:Any}, bus::Dict{String,<:Any})
+    terminals = bus["terminals"]
+    connections = [findfirst(isequal(c), terminals) for c in load["connections"]]
+
     if load["configuration"]==WYE
         vmin = bus["vmin"]
         vmax = bus["vmax"]
     elseif load["configuration"]==DELTA
         vmin, vmax = _calc_bus_vm_ll_bounds(bus)
     end
-    return vmin, vmax
+    return vmin[connections], vmax[connections]
 end
 
 """
