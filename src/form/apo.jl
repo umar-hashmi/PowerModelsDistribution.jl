@@ -12,17 +12,17 @@ end
 
 
 "on/off constraint for generators"
-function constraint_mc_gen_power_on_off(pm::_PM.AbstractActivePowerModel, n::Int, i::Int, pmin, pmax, qmin, qmax)
-    pg = var(pm, n, :pg, i)
-    z = var(pm, n, :z_gen, i)
+function constraint_mc_gen_power_on_off(pm::_PM.AbstractActivePowerModel, nw::Int, i::Int, pmin, pmax, qmin, qmax)
+    z = var(pm, nw, :z_gen, i)
+    pg = var(pm, nw, :pg_bus)[i] = var(pm, nw, :pg, i)
 
-    for c in conductor_ids(pm, n)
-        if isfinite(pmax[c])
-            JuMP.@constraint(pm.model, pg[c] .<= pmax[c].*z)
+    for (idx, c) in enumerate(ref(pm, nw, :gen, i)["connections"])
+        if isfinite(pmax[idx])
+            JuMP.@constraint(pm.model, pg[c] .<= pmax[idx].*z)
         end
 
-        if isfinite(pmin[c])
-            JuMP.@constraint(pm.model, pg[c] .>= pmin[c].*z)
+        if isfinite(pmin[idx])
+            JuMP.@constraint(pm.model, pg[c] .>= pmin[idx].*z)
         end
     end
 end
@@ -57,6 +57,7 @@ end
 function variable_mc_bus_voltage(pm::_PM.AbstractNFAModel; nw=pm.cnw, kwargs...)
 end
 
+
 "nothing to do, these models do not have angle difference constraints"
 function constraint_mc_voltage_angle_difference(pm::_PM.AbstractNFAModel, n::Int, f_idx, angmin, angmax)
 end
@@ -68,39 +69,40 @@ end
 
 
 "power balanace constraint with line shunts and transformers, active power only"
-function constraint_mc_load_power_balance(pm::_PM.AbstractActivePowerModel, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
-    p    = get(var(pm, nw),    :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
-    pg   = get(var(pm, nw),   :pg_bus, Dict()); _PM._check_var_keys(pg, bus_gens, "active power", "generator")
-    ps   = get(var(pm, nw),   :ps, Dict()); _PM._check_var_keys(ps, bus_storage, "active power", "storage")
-    psw  = get(var(pm, nw),  :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
-    pt   = get(var(pm, nw),   :pt, Dict()); _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
-    pd   = get(var(pm, nw),   :pd_bus, Dict()); _PM._check_var_keys(pg, bus_gens, "active power", "generator")
+function constraint_mc_load_power_balance(pm::_PM.AbstractActivePowerModel, nw::Int, i::Int, bus_arcs::Vector, bus_arcs_sw::Vector, bus_arcs_trans::Vector, bus_gens::Vector, bus_storage::Vector, bus_loads::Vector, bus_shunts::Vector, Gt::Matrix, Bt::Matrix)
+    p    = get(var(pm, nw),    :p, Dict())#; _PM._check_var_keys(p, bus_arcs, "active power", "branch")
+    pg   = get(var(pm, nw),   :pg_bus, Dict())#; _PM._check_var_keys(pg, bus_gens, "active power", "generator")
+    ps   = get(var(pm, nw),   :ps, Dict())#; _PM._check_var_keys(ps, bus_storage, "active power", "storage")
+    psw  = get(var(pm, nw),  :psw, Dict())#; _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
+    pt   = get(var(pm, nw),   :pt, Dict())#; _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
+    pd   = get(var(pm, nw),   :pd_bus, Dict())#; _PM._check_var_keys(pg, bus_gens, "active power", "generator")
+
+    bus = ref(pm, nw, :bus, i)
+    terminals = bus["terminals"]
+    grounded = bus["grounded"]
 
     cstr_p = []
-
-    for c in conductor_ids(pm; nw=nw)
+    for (j,t) in [(j,t) for (j,t) in enumerate(terminals) if !grounded[j]]
         cp = JuMP.@constraint(pm.model,
-            sum(p[a][c] for a in bus_arcs)
-            + sum(psw[a_sw][c] for a_sw in bus_arcs_sw)
-            + sum(pt[a_trans][c] for a_trans in bus_arcs_trans)
+              sum(p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(pt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
             ==
-            sum(pg[g][c] for g in bus_gens)
-            - sum(ps[s][c] for s in bus_storage)
-            - sum(pd[d][c] for d in bus_loads)
-            - sum(diag(gs)[c] for gs in values(bus_gs))*1.0^2
+              sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
+            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
+            - sum(pd[d][t] for (d, conns) in bus_loads if t in conns)
+            - diag(Gt)[j]
         )
         push!(cstr_p, cp)
     end
     # omit reactive constraint
-    cnds = conductor_ids(pm, nw)
-    ncnds = length(cnds)
 
     con(pm, nw, :lam_kcl_r)[i] = isa(cstr_p, Array) ? cstr_p : [cstr_p]
     con(pm, nw, :lam_kcl_i)[i] = []
 
     if _IM.report_duals(pm)
         sol(pm, nw, :bus, i)[:lam_kcl_r] = cstr_p
-        sol(pm, nw, :bus, i)[:lam_kcl_i] = [NaN for i in 1:ncnds]
+        sol(pm, nw, :bus, i)[:lam_kcl_i] = []
     end
 end
 
@@ -157,7 +159,7 @@ end
 
 
 "Do nothing, this model is symmetric"
-function constraint_mc_ohms_yt_to(pm::_PM.AbstractAPLossLessModels, n::Int, f_bus, t_bus, f_idx, t_idx, g, b, g_to, b_to, tr, ti, tm)
+function constraint_mc_ohms_yt_to(pm::_PM.AbstractAPLossLessModels, n::Int, f_bus, t_bus, f_idx, t_idx, g, b, g_to, b_to)
 end
 
 ### Network Flow Approximation ###
@@ -168,12 +170,12 @@ end
 
 
 "nothing to do, no voltage angle variables"
-function constraint_mc_ohms_yt_from(pm::_PM.AbstractNFAModel, n::Int, f_bus, t_bus, f_idx, t_idx, g, b, g_fr, b_fr, tr, ti, tm)
+function constraint_mc_ohms_yt_from(pm::_PM.AbstractNFAModel, n::Int, f_bus, t_bus, f_idx, t_idx, g, b, g_fr, b_fr)
 end
 
 
 "nothing to do, this model is symmetric"
-function constraint_mc_ohms_yt_to(pm::_PM.AbstractNFAModel, n::Int, f_bus, t_bus, f_idx, t_idx, g, b, g_to, b_to, tr, ti, tm)
+function constraint_mc_ohms_yt_to(pm::_PM.AbstractNFAModel, n::Int, f_bus, t_bus, f_idx, t_idx, g, b, g_to, b_to)
 end
 
 
@@ -361,10 +363,11 @@ end
 "Only support wye-connected, constant-power loads."
 function constraint_mc_load_setpoint(pm::_PM.AbstractActivePowerModel, id::Int; nw::Int=pm.cnw, report::Bool=true)
     load = ref(pm, nw, :load, id)
+    connections = load["connections"]
 
     pd = load["pd"]
 
-    var(pm, nw, :pd)[id] = pd
+    var(pm, nw, :pd)[id] = JuMP.Containers.DenseAxisArray(pd, connections)
     var(pm, nw, :pd_bus)[id] = var(pm, nw, :pd, id)
 
 

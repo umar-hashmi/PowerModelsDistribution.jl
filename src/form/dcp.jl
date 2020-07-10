@@ -38,31 +38,43 @@ end
 
 
 "power balance constraint with line shunts and transformers for load shed problem, DCP formulation"
-function constraint_mc_shed_power_balance(pm::_PM.AbstractDCPModel, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
-    p        = get(var(pm, nw),    :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
-    pg       = get(var(pm, nw),   :pg, Dict()); _PM._check_var_keys(pg, bus_gens, "active power", "generator")
-    ps       = get(var(pm, nw),   :ps, Dict()); _PM._check_var_keys(ps, bus_storage, "active power", "storage")
-    psw      = get(var(pm, nw),  :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
-    pt       = get(var(pm, nw),   :pt, Dict()); _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
+function constraint_mc_shed_load_power_balance(pm::_PM.AbstractDCPModel, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts, Gt, Bt)
+    p    = get(var(pm, nw), :p,      Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
+    pg   = get(var(pm, nw), :pg_bus, Dict()); _PM._check_var_keys(pg, bus_gens, "active power", "generator")
+    ps   = get(var(pm, nw), :ps,     Dict()); _PM._check_var_keys(ps, bus_storage, "active power", "storage")
+    psw  = get(var(pm, nw), :psw,    Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
+    pt   = get(var(pm, nw), :pt,     Dict()); _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
+    pd   = get(var(pm, nw), :pd_bus, Dict()); _PM._check_var_keys(pg, bus_gens, "active power", "generator")
+
     z_demand = var(pm, nw, :z_demand)
+    z_gen = var(pm, nw, :z_gen)
+    z_storage = var(pm, nw, :z_storage)
     z_shunt  = var(pm, nw, :z_shunt)
 
-    cp = JuMP.@constraint(pm.model,
-        sum(p[a] for a in bus_arcs)
-        + sum(psw[a_sw] for a_sw in bus_arcs_sw)
-        + sum(pt[a_trans] for a_trans in bus_arcs_trans)
-        .==
-        sum(pg[g] for g in bus_gens)
-        - sum(ps[s] for s in bus_storage)
-        - sum(pd.*z_demand[n] for (n,pd) in bus_pd)
-        - sum(diag(gs)*1.0^2 .*z_shunt[n] for (n,gs) in bus_gs)
-    )
+    bus = ref(pm, nw, :bus, i)
+    terminals = bus["terminals"]
+    grounded = bus["grounded"]
 
-    con(pm, nw, :lam_kcl_r)[i] = isa(cp, JuMP.ConstraintRef) ? [cp] : cp
+    cstr_p = []
+    for (j,t) in [(j,t) for (j,t) in enumerate(terminals) if !grounded[j]]
+        cp = JuMP.@constraint(pm.model,
+              sum(p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(pt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
+            + sum(pd[d][t]*z_demand[d] for (d, conns) in bus_loads if t in conns)
+            - sum(pg[g][t]*z_gen[g] for (g, conns) in bus_gens if t in conns)
+            - sum(ps[s][t]*z_storage[s] for (s, conns) in bus_storage if t in conns)
+            + diag(Gt)[j]*sum(z_shunt[s] for (s, conns) in bus_shunts)
+            == 0
+        )
+        push!(cstr_p, cp)
+    end
+
+    con(pm, nw, :lam_kcl_r)[i] = cstr_p
     con(pm, nw, :lam_kcl_i)[i] = []
 
     if _IM.report_duals(pm)
-        sol(pm, nw, :bus, i)[:lam_kcl_r] = cp
+        sol(pm, nw, :bus, i)[:lam_kcl_r] = cstr_p
     end
 end
 
@@ -74,20 +86,20 @@ end
 
 ""
 function variable_mc_branch_power_real(pm::_PM.AbstractAPLossLessModels; nw::Int=pm.cnw, bounded::Bool = true, report::Bool = true)
-    cnds = conductor_ids(pm)
-    ncnds = length(cnds)
-
+    connections = Dict((l,i,j) => connections for (bus,entry) in ref(pm, nw, :bus_arcs_conns_branch) for ((l,i,j), connections) in entry)
     p = Dict((l,i,j) => JuMP.@variable(pm.model,
-        [c in 1:ncnds], base_name="$(nw)_($l,$i,$j)_p",
+        [c in connections[(l,i,j)]], base_name="$(nw)_($l,$i,$j)_p",
         start = comp_start_value(ref(pm, nw, :branch, l), "p_start", c, 0.0)
     ) for (l,i,j) in ref(pm, nw, :arcs_from))
 
     if bounded
         for (l,i,j) in ref(pm, nw, :arcs_from)
             smax = _calc_branch_power_max(ref(pm, nw, :branch, l), ref(pm, nw, :bus, i))
-            if !ismissing(smax)
-                set_upper_bound.(p[(l,i,j)],  smax)
-                set_lower_bound.(p[(l,i,j)], -smax)
+            for (k,t) in enumerate(connections[(l,i,j)])
+                if !ismissing(smax)
+                    set_upper_bound.(p[(l,i,j)][t],  smax[k])
+                    set_lower_bound.(p[(l,i,j)][t], -smax[k])
+                end
             end
         end
     end
