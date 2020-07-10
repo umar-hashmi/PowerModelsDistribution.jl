@@ -49,12 +49,10 @@ function constraint_mc_ohms_yt_from(pm::_PM.AbstractPowerModel, i::Int; nw::Int=
     t_idx = (i, t_bus, f_bus)
 
     g, b = _PM.calc_branch_y(branch)
-    tr, ti = _PM.calc_branch_t(branch)
     g_fr = branch["g_fr"]
     b_fr = branch["b_fr"]
-    tm = branch["tap"]
 
-    constraint_mc_ohms_yt_from(pm, nw, f_bus, t_bus, f_idx, t_idx, g, b, g_fr, b_fr, tr, ti, tm)
+    constraint_mc_ohms_yt_from(pm, nw, f_bus, t_bus, f_idx, t_idx, g, b, g_fr, b_fr)
 end
 
 
@@ -67,12 +65,10 @@ function constraint_mc_ohms_yt_to(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm
     t_idx = (i, t_bus, f_bus)
 
     g, b = _PM.calc_branch_y(branch)
-    tr, ti = _PM.calc_branch_t(branch)
     g_to = branch["g_to"]
     b_to = branch["b_to"]
-    tm = branch["tap"]
 
-    constraint_mc_ohms_yt_to(pm, nw, f_bus, t_bus, f_idx, t_idx, g, b, g_to, b_to, tr, ti, tm)
+    constraint_mc_ohms_yt_to(pm, nw, f_bus, t_bus, f_idx, t_idx, g, b, g_to, b_to)
 end
 
 
@@ -88,9 +84,8 @@ function constraint_mc_model_voltage_magnitude_difference(pm::_PM.AbstractPowerM
     x = branch["br_x"]
     g_sh_fr = branch["g_fr"]
     b_sh_fr = branch["b_fr"]
-    tm = branch["tap"]
 
-    constraint_mc_model_voltage_magnitude_difference(pm, nw, i, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, b_sh_fr, tm)
+    constraint_mc_model_voltage_magnitude_difference(pm, nw, i, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, b_sh_fr)
 end
 
 

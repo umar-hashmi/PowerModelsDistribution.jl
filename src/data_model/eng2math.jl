@@ -217,12 +217,6 @@ function _map_eng2math_line!(data_math::Dict{String,<:Any}, data_eng::Dict{<:Any
             end
         end
 
-        math_obj["transformer"] = false
-        math_obj["shift"] = zeros(nphases)
-        math_obj["tap"] = ones(nphases)
-
-        math_obj["switch"] = false
-
         math_obj["br_status"] = Int(eng_obj["status"])
 
         data_math["branch"]["$(math_obj["index"])"] = math_obj
@@ -424,10 +418,6 @@ function _map_eng2math_switch!(data_math::Dict{String,<:Any}, data_eng::Dict{<:A
                 "b_to" => zeros(nphases, nphases),
                 "angmin" => fill(-60.0, nphases),
                 "angmax" => fill( 60.0, nphases),
-                "transformer" => false,
-                "shift" => zeros(nphases),
-                "tap" => ones(nphases),
-                "switch" => false,
                 "br_status" => get(eng_obj, "state", CLOSED) == OPEN || eng_obj["status"] == DISABLED ? 0 : 1,
             )
 

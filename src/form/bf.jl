@@ -5,34 +5,27 @@ function constraint_mc_voltage_angle_difference(pm::_PM.AbstractBFModel, n::Int,
 
     branch = ref(pm, n, :branch, i)
 
-    for c in conductor_ids(pm; nw=n)
-        tm = branch["tap"][c]
-        g_fr = branch["g_fr"][c,c]
-        g_to = branch["g_to"][c,c]
-        b_fr = branch["b_fr"][c,c]
-        b_to = branch["b_to"][c,c]
+    for (idx, (fc, tc)) in enumerate(zip(branch["f_connections"], branch["t_connections"]))
+        g_fr = branch["g_fr"][idx,idx]
+        g_to = branch["g_to"][idx,idx]
+        b_fr = branch["b_fr"][idx,idx]
+        b_to = branch["b_to"][idx,idx]
 
-        tr, ti = _PM.calc_branch_t(branch)
-        tr, ti = tr[c], ti[c]
-
-        r = branch["br_r"][c,c]
-        x = branch["br_x"][c,c]
+        r = branch["br_r"][idx,idx]
+        x = branch["br_x"][idx,idx]
 
         # getting the variables
-        w_fr = var(pm, n, :w, f_bus)[c]
-        p_fr = var(pm, n, :p, f_idx)[c]
-        q_fr = var(pm, n, :q, f_idx)[c]
-
-        tzr = r*tr + x*ti
-        tzi = r*ti - x*tr
+        w_fr = var(pm, n, :w, f_bus)[fc]
+        p_fr = var(pm, n, :p, f_idx)[fc]
+        q_fr = var(pm, n, :q, f_idx)[fc]
 
         JuMP.@constraint(pm.model,
-            tan(angmin[c])*((tr + tzr*g_fr + tzi*b_fr)*(w_fr/tm^2) - tzr*p_fr + tzi*q_fr)
-                     <= ((ti + tzi*g_fr - tzr*b_fr)*(w_fr/tm^2) - tzi*p_fr - tzr*q_fr)
+            tan(angmin[idx])*((1 + r*g_fr - x*b_fr)*(w_fr) - r*p_fr - x*q_fr)
+                     <= ((-x*g_fr - r*b_fr)*(w_fr) + x*p_fr - r*q_fr)
             )
         JuMP.@constraint(pm.model,
-            tan(angmax[c])*((tr + tzr*g_fr + tzi*b_fr)*(w_fr/tm^2) - tzr*p_fr + tzi*q_fr)
-                     >= ((ti + tzi*g_fr - tzr*b_fr)*(w_fr/tm^2) - tzi*p_fr - tzr*q_fr)
+            tan(angmax[idx])*((1 + r*g_fr - x*b_fr)*(w_fr) - r*p_fr - x*q_fr)
+                     >= ((-x*g_fr - r*b_fr)*(w_fr) + x*p_fr - r*q_fr)
             )
     end
 end
