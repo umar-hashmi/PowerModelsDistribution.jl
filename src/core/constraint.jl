@@ -97,8 +97,9 @@ end
 
 ""
 function constraint_mc_storage_thermal_limit(pm::_PM.AbstractPowerModel, n::Int, i, rating)
-    ps = var(pm, n, :ps, i)
-    qs = var(pm, n, :qs, i)
+    connections = ref(pm, n, :storage, i)["connections"]
+    ps = [var(pm, n, :ps, i)[c] for c in connections]
+    qs = [var(pm, n, :qs, i)[c] for c in connections]
 
     JuMP.@constraint(pm.model, ps.^2 + qs.^2 .<= rating.^2)
 end
