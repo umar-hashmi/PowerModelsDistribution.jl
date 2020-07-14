@@ -69,7 +69,7 @@ end
 
 
 "power balanace constraint with line shunts and transformers, active power only"
-function constraint_mc_load_power_balance(pm::_PM.AbstractActivePowerModel, nw::Int, i::Int, bus_arcs::Vector, bus_arcs_sw::Vector, bus_arcs_trans::Vector, bus_gens::Vector, bus_storage::Vector, bus_loads::Vector, bus_shunts::Vector, Gt::Matrix, Bt::Matrix)
+function constraint_mc_power_balance(pm::_PM.AbstractActivePowerModel, nw::Int, i::Int, bus_arcs::Vector, bus_arcs_sw::Vector, bus_arcs_trans::Vector, bus_gens::Vector, bus_storage::Vector, bus_loads::Vector, bus_shunts::Vector, Gt::Matrix, Bt::Matrix)
     p    = get(var(pm, nw),    :p, Dict())#; _PM._check_var_keys(p, bus_arcs, "active power", "branch")
     pg   = get(var(pm, nw),   :pg_bus, Dict())#; _PM._check_var_keys(pg, bus_gens, "active power", "generator")
     ps   = get(var(pm, nw),   :ps, Dict())#; _PM._check_var_keys(ps, bus_storage, "active power", "storage")
@@ -361,7 +361,7 @@ end
 
 
 "Only support wye-connected, constant-power loads."
-function constraint_mc_load_setpoint(pm::_PM.AbstractActivePowerModel, id::Int; nw::Int=pm.cnw, report::Bool=true)
+function constraint_mc_load_power(pm::_PM.AbstractActivePowerModel, id::Int; nw::Int=pm.cnw, report::Bool=true)
     load = ref(pm, nw, :load, id)
     connections = load["connections"]
 

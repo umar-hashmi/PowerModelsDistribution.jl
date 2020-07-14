@@ -9,7 +9,7 @@ end
 
 
 ""
-function constraint_mc_slack_power_balance(pm::_PM.AbstractWModels, nw::Int, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
+function constraint_mc_power_balance_slack(pm::_PM.AbstractWModels, nw::Int, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
     w    = var(pm, nw, :w, i)
     p    = get(var(pm, nw),    :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
     q    = get(var(pm, nw),    :q, Dict()); _PM._check_var_keys(q, bus_arcs, "reactive power", "branch")
@@ -67,11 +67,10 @@ end
 
 
 "Creates phase angle constraints at reference buses"
-function constraint_mc_theta_ref(pm::_PM.AbstractPolarModels, n::Int, d::Int, va_ref)
-    cnds = conductor_ids(pm; nw=n)
-    nconductors = length(cnds)
+function constraint_mc_theta_ref(pm::_PM.AbstractPolarModels, nw::Int, i::Int, va_ref::Vector{<:Real})
+    terminals = ref(pm, nw, :bus, i)["terminals"]
 
-    va = var(pm, n, :va, d)
+    va = [var(pm, nw, :va, i)[t] for t in terminals]
 
     JuMP.@constraint(pm.model, va .== va_ref)
 end
@@ -92,7 +91,7 @@ end
 
 
 "KCL for load shed problem with transformers (AbstractWForms)"
-function constraint_mc_shed_power_balance(pm::_PM.AbstractWModels, nw::Int, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
+function constraint_mc_power_balance_shed(pm::_PM.AbstractWModels, nw::Int, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
     w        = var(pm, nw, :w, i)
     p        = get(var(pm, nw),    :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
     q        = get(var(pm, nw),    :q, Dict()); _PM._check_var_keys(q, bus_arcs, "reactive power", "branch")
@@ -147,7 +146,7 @@ end
 
 
 ""
-function constraint_mc_load_power_balance(pm::_PM.AbstractWModels, nw::Int, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
+function constraint_mc_power_balance(pm::_PM.AbstractWModels, nw::Int, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
     Wr = var(pm, nw, :Wr, i)
     Wi = var(pm, nw, :Wi, i)
     P = get(var(pm, nw), :P, Dict()); _PM._check_var_keys(P, bus_arcs, "active power", "branch")
@@ -223,15 +222,19 @@ end
 
 
 ""
-function constraint_mc_voltage_angle_difference(pm::_PM.AbstractPolarModels, n::Int, f_idx, angmin, angmax)
+function constraint_mc_voltage_angle_difference(pm::_PM.AbstractPolarModels, nw::Int, f_idx::Tuple{Int,Int,Int}, angmin::Vector{<:Real}, angmax::Vector{<:Real})
     i, f_bus, t_bus = f_idx
 
-    va_fr = var(pm, n, :va, f_bus)
-    va_to = var(pm, n, :va, t_bus)
+    branch = ref(pm, nw, :branch, i)
+    f_connections = branch["f_connections"]
+    t_connections = branch["t_connections"]
 
-    for c in conductor_ids(pm; nw=n)
-        JuMP.@constraint(pm.model, va_fr[c] - va_to[c] <= angmax[c])
-        JuMP.@constraint(pm.model, va_fr[c] - va_to[c] >= angmin[c])
+    va_fr = var(pm, nw, :va, f_bus)
+    va_to = var(pm, nw, :va, t_bus)
+
+    for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))
+        JuMP.@constraint(pm.model, va_fr[fc] - va_to[tc] <= angmax[idx])
+        JuMP.@constraint(pm.model, va_fr[fc] - va_to[tc] >= angmin[idx])
     end
 end
 
@@ -271,7 +274,7 @@ end
 
 
 ""
-function constraint_mc_gen_setpoint_wye(pm::_PM.AbstractPowerModel, nw::Int, id::Int, bus_id::Int, pmin::Vector, pmax::Vector, qmin::Vector, qmax::Vector; report::Bool=true, bounded::Bool=true)
+function constraint_mc_gen_setpoint_wye(pm::_PM.AbstractPowerModel, nw::Int, id::Int, bus_id::Int, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real}; report::Bool=true, bounded::Bool=true)
     var(pm, nw, :pg_bus)[id] = var(pm, nw, :pg, id)
     var(pm, nw, :qg_bus)[id] = var(pm, nw, :qg, id)
 

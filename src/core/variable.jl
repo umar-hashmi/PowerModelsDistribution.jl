@@ -15,12 +15,10 @@ end
 
 ""
 function variable_mc_bus_voltage_angle(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    cnds = conductor_ids(pm; nw=nw)
-    ncnds = length(cnds)
-
+    terminals = Dict(i => bus["terminals"] for (i,bus) in ref(pm, nw, :bus))
     va = var(pm, nw)[:va] = Dict(i => JuMP.@variable(pm.model,
-            [c in 1:ncnds], base_name="$(nw)_va_$(i)",
-            start = comp_start_value(ref(pm, nw, :bus, i), "va_start", c, 0.0)
+            [t in terminals[i]], base_name="$(nw)_va_$(i)",
+            start = comp_start_value(ref(pm, nw, :bus, i), "va_start", t, 0.0)
         ) for i in ids(pm, nw, :bus)
     )
 
@@ -29,22 +27,22 @@ end
 
 ""
 function variable_mc_bus_voltage_magnitude_only(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    cnds = conductor_ids(pm; nw=nw)
-    ncnds = length(cnds)
-
+    terminals = Dict(i => bus["terminals"] for (i,bus) in ref(pm, nw, :bus))
     vm = var(pm, nw)[:vm] = Dict(i => JuMP.@variable(pm.model,
-            [c in 1:ncnds], base_name="$(nw)_vm_$(i)",
-            start = comp_start_value(ref(pm, nw, :bus, i), "vm_start", c, 1.0)
+            [t in terminals[i]], base_name="$(nw)_vm_$(i)",
+            start = comp_start_value(ref(pm, nw, :bus, i), "vm_start", t, 1.0)
         ) for i in ids(pm, nw, :bus)
     )
 
     if bounded
         for (i,bus) in ref(pm, nw, :bus)
-            if haskey(bus, "vmin")
-                set_lower_bound.(vm[i], bus["vmin"])
-            end
-            if haskey(bus, "vmax")
-                set_upper_bound.(vm[i], bus["vmax"])
+            for (idx, t) in enumerate(terminals[i])
+                if haskey(bus, "vmin")
+                    set_lower_bound(vm[i][t], bus["vmin"][idx])
+                end
+                if haskey(bus, "vmax")
+                    set_upper_bound(vm[i][t], bus["vmax"][idx])
+                end
             end
         end
     end
@@ -54,8 +52,9 @@ end
 
 ""
 function variable_mc_bus_voltage_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+    terminals = Dict(i => bus["terminals"] for (i,bus) in ref(pm, nw, :bus))
     vr = var(pm, nw)[:vr] = Dict(i => JuMP.@variable(pm.model,
-            [t in ref(pm, nw, :bus, i)["terminals"]], base_name="$(nw)_vr_$(i)",
+            [t in terminals[i]], base_name="$(nw)_vr_$(i)",
             start = comp_start_value(ref(pm, nw, :bus, i), "vr_start", t, 0.0)
         ) for i in ids(pm, nw, :bus)
     )
@@ -63,9 +62,9 @@ function variable_mc_bus_voltage_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw
     if bounded
         for (i,bus) in ref(pm, nw, :bus)
             if haskey(bus, "vmax")
-                for (idx,t) in enumerate(bus["terminals"])
-                    set_lower_bound.(vr[i][t], -bus["vmax"][idx])
-                    set_upper_bound.(vr[i][t],  bus["vmax"][idx])
+                for (idx,t) in enumerate(terminals[i])
+                    set_lower_bound(vr[i][t], -bus["vmax"][idx])
+                    set_upper_bound(vr[i][t],  bus["vmax"][idx])
                 end
             end
         end
@@ -76,11 +75,9 @@ end
 
 ""
 function variable_mc_bus_voltage_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    cnds = conductor_ids(pm; nw=nw)
-    ncnds = length(cnds)
-
+    terminals = Dict(i => bus["terminals"] for (i,bus) in ref(pm, nw, :bus))
     vi = var(pm, nw)[:vi] = Dict(i => JuMP.@variable(pm.model,
-            [t in ref(pm, nw, :bus, i)["terminals"]], base_name="$(nw)_vi_$(i)",
+            [t in terminals[i]], base_name="$(nw)_vi_$(i)",
             start = comp_start_value(ref(pm, nw, :bus, i), "vi_start", t, 0.0)
         ) for i in ids(pm, nw, :bus)
     )
@@ -88,9 +85,9 @@ function variable_mc_bus_voltage_imaginary(pm::_PM.AbstractPowerModel; nw::Int=p
     if bounded
         for (i,bus) in ref(pm, nw, :bus)
             if haskey(bus, "vmax")
-                for (idx,t) in enumerate(bus["terminals"])
-                    set_lower_bound.(vi[i][t], -bus["vmax"][idx])
-                    set_upper_bound.(vi[i][t],  bus["vmax"][idx])
+                for (idx,t) in enumerate(terminals[i])
+                    set_lower_bound(vi[i][t], -bus["vmax"][idx])
+                    set_upper_bound(vi[i][t],  bus["vmax"][idx])
                 end
             end
         end
@@ -119,8 +116,8 @@ function variable_mc_branch_power_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cn
         for (l,i,j) in ref(pm, nw, :arcs)
             smax = _calc_branch_power_max(ref(pm, nw, :branch, l), ref(pm, nw, :bus, i))
             for (idx, c) in enumerate(connections[(l,i,j)])
-                set_upper_bound.(p[(l,i,j)][c],  smax[idx])
-                set_lower_bound.(p[(l,i,j)][c], -smax[idx])
+                set_upper_bound(p[(l,i,j)][c],  smax[idx])
+                set_lower_bound(p[(l,i,j)][c], -smax[idx])
             end
         end
     end
@@ -152,8 +149,8 @@ function variable_mc_branch_power_imaginary(pm::_PM.AbstractPowerModel; nw::Int=
         for (l,i,j) in ref(pm, nw, :arcs)
             smax = _calc_branch_power_max(ref(pm, nw, :branch, l), ref(pm, nw, :bus, i))
             for (idx, c) in enumerate(connections[(l,i,j)])
-                set_upper_bound.(q[(l,i,j)][c],  smax[idx])
-                set_lower_bound.(q[(l,i,j)][c], -smax[idx])
+                set_upper_bound(q[(l,i,j)][c],  smax[idx])
+                set_lower_bound(q[(l,i,j)][c], -smax[idx])
             end
         end
     end
@@ -335,7 +332,7 @@ end
 
 "variable: `w[i] >= 0` for `i` in `buses"
 function variable_mc_bus_voltage_magnitude_sqr(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    terminals = Dict(i => ref(pm, nw, :bus, i)["terminals"] for i in ids(pm, nw, :bus))
+    terminals = Dict(i => bus["terminals"] for (i,bus) in ref(pm, nw, :bus))
     w = var(pm, nw)[:w] = Dict(i => JuMP.@variable(pm.model,
             [t in terminals[i]], base_name="$(nw)_w_$(i)",
             lower_bound = 0.0,
@@ -346,13 +343,10 @@ function variable_mc_bus_voltage_magnitude_sqr(pm::_PM.AbstractPowerModel; nw::I
     if bounded
         for i in ids(pm, nw, :bus)
             bus = ref(pm, nw, :bus, i)
-            terminals = bus["terminals"]
-            vmax=bus["vmax"]
-            vmin=bus["vmin"]
-            for (idx, t) in enumerate(terminals)
-                set_upper_bound.(w[i][t], max(vmin[idx]^2, vmax[idx]^2))
-                if vmin[idx] > 0
-                    set_lower_bound.(w[i][t], vmin[idx]^2)
+            for (idx, t) in enumerate(terminals[i])
+                set_upper_bound(w[i][t], max(bus["vmin"][idx]^2, bus["vmax"][idx]^2))
+                if bus["vmin"][idx] > 0
+                    set_lower_bound(w[i][t], bus["vmin"][idx]^2)
                 end
             end
         end
@@ -662,7 +656,7 @@ Create a dictionary with values of type Any for the load.
 Depending on the load model, this can be a parameter or a NLexpression.
 These will be inserted into KCL.
 """
-function variable_mc_load_setpoint(pm::_PM.AbstractPowerModel; nw=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_load_power(pm::_PM.AbstractPowerModel; nw=pm.cnw, bounded::Bool=true, report::Bool=true)
     var(pm, nw)[:pd] = Dict{Int, Any}()
     var(pm, nw)[:qd] = Dict{Int, Any}()
     var(pm, nw)[:pd_bus] = Dict{Int, Any}()
@@ -897,7 +891,7 @@ end
 
 ""
 function variable_mc_gen_power_setpoint_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    connections = Dict(i => ref(pm, nw, :gen, i)["connections"] for i in ids(pm, nw, :gen))
+    connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     pg = var(pm, nw)[:pg] = Dict(i => JuMP.@variable(pm.model,
             [c in connections[i]], base_name="$(nw)_pg_$(i)",
             start = comp_start_value(ref(pm, nw, :gen, i), "pg_start", c, 0.0)
@@ -927,7 +921,7 @@ end
 
 ""
 function variable_mc_gen_power_setpoint_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    connections = Dict(i => ref(pm, nw, :gen, i)["connections"] for i in ids(pm, nw, :gen))
+    connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     qg = var(pm, nw)[:qg] = Dict(i => JuMP.@variable(pm.model,
             [c in connections[i]], base_name="$(nw)_qg_$(i)",
             start = comp_start_value(ref(pm, nw, :gen, i), "qg_start", c, 0.0)
@@ -956,7 +950,7 @@ end
 
 
 "variable: `crg[j]` for `j` in `gen`"
-function variable_mc_gen_current_setpoint_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_gen_current_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     gen = ref(pm, nw, :gen)
     bus = ref(pm, nw, :bus)
     cnds = conductor_ids(pm; nw=nw)
@@ -979,7 +973,7 @@ function variable_mc_gen_current_setpoint_real(pm::_PM.AbstractPowerModel; nw::I
 end
 
 "variable: `cig[j]` for `j` in `gen`"
-function variable_mc_gen_current_setpoint_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_gen_current_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     gen = ref(pm, nw, :gen)
     bus = ref(pm, nw, :bus)
     cnds = conductor_ids(pm; nw=nw)

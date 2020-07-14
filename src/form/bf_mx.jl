@@ -319,7 +319,7 @@ Wye loads however, don't need any variables when the load is modelled as
 constant power or constant impedance. In all other cases (e.g. when a cone is
 used to constrain the power), variables need to be created.
 """
-function variable_mc_load_setpoint(pm::AbstractUBFModels; nw=pm.cnw)
+function variable_mc_load_power(pm::AbstractUBFModels; nw=pm.cnw)
     load_wye_ids = [id for (id, load) in ref(pm, nw, :load) if load["configuration"]==WYE]
     load_del_ids = [id for (id, load) in ref(pm, nw, :load) if load["configuration"]==DELTA]
     load_cone_ids = [id for (id, load) in ref(pm, nw, :load) if _check_load_needs_cone(load)]
@@ -350,7 +350,7 @@ Delta loads only need a current variable and auxilary power variable (X), and
 all other load model variables are then linear transformations of these
 (linear Expressions).
 """
-function variable_mc_load_setpoint(pm::SDPUBFKCLMXModel; nw=pm.cnw)
+function variable_mc_load_power(pm::SDPUBFKCLMXModel; nw=pm.cnw)
     load_wye_ids = [id for (id, load) in ref(pm, nw, :load) if load["configuration"]==WYE]
     load_del_ids = [id for (id, load) in ref(pm, nw, :load) if load["configuration"]==DELTA]
     load_cone_ids = [id for (id, load) in ref(pm, nw, :load) if _check_load_needs_cone(load)]
@@ -604,7 +604,7 @@ end
 """
 Creates the constraints modelling the (relaxed) voltage-dependent loads.
 """
-function constraint_mc_load_setpoint(pm::AbstractUBFModels, load_id::Int; nw::Int=pm.cnw, report::Bool=true)
+function constraint_mc_load_power(pm::AbstractUBFModels, load_id::Int; nw::Int=pm.cnw, report::Bool=true)
     # shared variables and parameters
     load = ref(pm, nw, :load, load_id)
     connections = load["connections"]
@@ -706,7 +706,7 @@ end
 Creates the constraints modelling the (relaxed) voltage-dependent loads for
 the matrix KCL formulation.
 """
-function constraint_mc_load_setpoint(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm.cnw, report::Bool=true)
+function constraint_mc_load_power(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm.cnw, report::Bool=true)
     # shared variables and parameters
     load = ref(pm, nw, :load, load_id)
     pd0 = load["pd"]
@@ -828,7 +828,7 @@ S = U.I' = U.(Y.U)' = U.U'.Y' = W.Y'
 P =  Wr.G'+Wi.B'
 Q = -Wr.B'+Wi.G'
 """
-function constraint_mc_load_power_balance(pm::KCLMXModels, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
+function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
     Wr = var(pm, nw, :Wr, i)
     Wi = var(pm, nw, :Wi, i)
 

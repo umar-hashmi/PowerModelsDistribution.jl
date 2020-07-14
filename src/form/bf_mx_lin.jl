@@ -88,26 +88,24 @@ end
 
 
 ""
-function constraint_mc_load_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts, Gt, Bt)
+function constraint_mc_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
     w = var(pm, nw, :w, i)
     bus = ref(pm, nw, :bus, i)
     terminals = bus["terminals"]
     grounded = bus["grounded"]
 
-    p = get(var(pm, nw), :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
-    q = get(var(pm, nw), :q, Dict()); _PM._check_var_keys(q, bus_arcs, "reactive power", "branch")
-
-    psw  = get(var(pm, nw),  :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
-    qsw  = get(var(pm, nw),  :qsw, Dict()); _PM._check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
-    pt   = get(var(pm, nw),   :pt, Dict()); _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
-    qt   = get(var(pm, nw),   :qt, Dict()); _PM._check_var_keys(qt, bus_arcs_trans, "reactive power", "transformer")
-
-    pd = get(var(pm, nw), :pd, Dict()); _PM._check_var_keys(pd, bus_loads, "active power", "load")
-    qd = get(var(pm, nw), :qd, Dict()); _PM._check_var_keys(qd, bus_loads, "reactive power", "load")
-    pg = get(var(pm, nw), :pg, Dict()); _PM._check_var_keys(pg, bus_gens, "active power", "generator")
-    qg = get(var(pm, nw), :qg, Dict()); _PM._check_var_keys(qg, bus_gens, "reactive power", "generator")
-    ps   = get(var(pm, nw),   :ps, Dict()); _PM._check_var_keys(ps, bus_storage, "active power", "storage")
-    qs   = get(var(pm, nw),   :qs, Dict()); _PM._check_var_keys(qs, bus_storage, "reactive power", "storage")
+    p   = get(var(pm, nw), :p,   Dict()); _PM._check_var_keys(p,   bus_arcs, "active power", "branch")
+    q   = get(var(pm, nw), :q,   Dict()); _PM._check_var_keys(q,   bus_arcs, "reactive power", "branch")
+    psw = get(var(pm, nw), :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
+    qsw = get(var(pm, nw), :qsw, Dict()); _PM._check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
+    pt  = get(var(pm, nw), :pt,  Dict()); _PM._check_var_keys(pt,  bus_arcs_trans, "active power", "transformer")
+    qt  = get(var(pm, nw), :qt,  Dict()); _PM._check_var_keys(qt,  bus_arcs_trans, "reactive power", "transformer")
+    pd  = get(var(pm, nw), :pd,  Dict()); _PM._check_var_keys(pd,  bus_loads, "active power", "load")
+    qd  = get(var(pm, nw), :qd,  Dict()); _PM._check_var_keys(qd,  bus_loads, "reactive power", "load")
+    pg  = get(var(pm, nw), :pg,  Dict()); _PM._check_var_keys(pg,  bus_gens, "active power", "generator")
+    qg  = get(var(pm, nw), :qg,  Dict()); _PM._check_var_keys(qg,  bus_gens, "reactive power", "generator")
+    ps  = get(var(pm, nw), :ps,  Dict()); _PM._check_var_keys(ps,  bus_storage, "active power", "storage")
+    qs  = get(var(pm, nw), :qs,  Dict()); _PM._check_var_keys(qs,  bus_storage, "reactive power", "storage")
 
     shunt = ref(pm, nw, :shunt)
 

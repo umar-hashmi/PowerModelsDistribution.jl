@@ -38,7 +38,7 @@ function build_mc_mld(pm::_PM.AbstractPowerModel)
     variable_mc_storage_power_mi_on_off(pm, relax=true)
 
     variable_mc_load_indicator(pm; relax=true)
-    variable_mc_load_setpoint(pm)
+    variable_mc_load_power(pm)
 
     variable_mc_shunt_indicator(pm; relax=true)
 
@@ -55,11 +55,11 @@ function build_mc_mld(pm::_PM.AbstractPowerModel)
     end
 
     for id in ids(pm, :load)
-        constraint_mc_load_setpoint(pm, id)
+        constraint_mc_load_power(pm, id)
     end
 
     for i in ids(pm, :bus)
-        constraint_mc_shed_load_power_balance(pm, i)
+        constraint_mc_power_balance_shed(pm, i)
     end
 
     for i in ids(pm, :storage)
@@ -111,7 +111,7 @@ function build_mn_mc_mld_simple(pm::_PM.AbstractPowerModel)
         end
 
         for i in ids(pm, n, :bus)
-            constraint_mc_shed_power_balance(pm, i; nw=n)
+            constraint_mc_power_balance_shed(pm, i; nw=n)
         end
 
         for i in ids(pm, n, :storage)
@@ -184,7 +184,7 @@ function build_mc_mld(pm::AbstractUBFModels)
     end
 
     for i in ids(pm, :bus)
-        constraint_mc_shed_power_balance(pm, i)
+        constraint_mc_power_balance_shed(pm, i)
     end
 
     for i in ids(pm, :storage)
@@ -237,7 +237,7 @@ function build_mn_mc_mld_simple(pm::AbstractUBFModels)
         end
 
         for i in ids(pm, n, :bus)
-            constraint_mc_shed_power_balance(pm, i; nw=n)
+            constraint_mc_power_balance_shed(pm, i; nw=n)
         end
 
         for i in ids(pm, n, :storage)
@@ -307,7 +307,7 @@ function build_mc_mld_bf(pm::_PM.AbstractPowerModel)
     end
 
     for i in ids(pm, :bus)
-        constraint_mc_shed_power_balance(pm, i)
+        constraint_mc_power_balance_shed(pm, i)
     end
 
     for i in ids(pm, :branch)
@@ -359,7 +359,7 @@ function build_mc_mld_uc(pm::_PM.AbstractPowerModel)
     end
 
     for i in ids(pm, :bus)
-        constraint_mc_shed_power_balance(pm, i)
+        constraint_mc_power_balance_shed(pm, i)
     end
 
     for i in ids(pm, :storage)

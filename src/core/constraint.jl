@@ -1,30 +1,32 @@
 "do nothing by default"
-function constraint_mc_model_voltage(pm::_PM.AbstractPowerModel, n::Int)
+function constraint_mc_model_voltage(pm::_PM.AbstractPowerModel, nw::Int)
 end
 
 
 "Generic thermal limit constraint from-side"
-function constraint_mc_thermal_limit_from(pm::_PM.AbstractPowerModel, n::Int, f_idx, rate_a)
-    p_fr = var(pm, n, :p, f_idx)
-    q_fr = var(pm, n, :q, f_idx)
+function constraint_mc_thermal_limit_from(pm::_PM.AbstractPowerModel, nw::Int, f_idx::Tuple{Int,Int,Int}, rate_a::Vector{<:Real})
+    f_connections = ref(pm, nw, :branch, f_idx[1])["f_connections"]
+    p_fr = [var(pm, nw, :p, f_idx)[c] for c in f_connections]
+    q_fr = [var(pm, nw, :q, f_idx)[c] for c in f_connections]
 
     mu_sm_fr = JuMP.@constraint(pm.model, p_fr.^2 + q_fr.^2 .<= rate_a.^2)
 
     if _IM.report_duals(pm)
-        sol(pm, n, :branch, f_idx[1])[:mu_sm_fr] = mu_sm_fr
+        sol(pm, nw, :branch, f_idx[1])[:mu_sm_fr] = mu_sm_fr
     end
 end
 
 
 "Generic thermal limit constraint to-side"
-function constraint_mc_thermal_limit_to(pm::_PM.AbstractPowerModel, n::Int, t_idx, rate_a)
-    p_to = var(pm, n, :p, t_idx)
-    q_to = var(pm, n, :q, t_idx)
+function constraint_mc_thermal_limit_to(pm::_PM.AbstractPowerModel, nw::Int, t_idx::Tuple{Int,Int,Int}, rate_a::Vector{<:Real})
+    t_connections = ref(pm, nw, :branch, t_idx[1])["t_connections"]
+    p_to = [var(pm, nw, :p, t_idx)[c] for c in t_connections]
+    q_to = [var(pm, nw, :q, t_idx)[c] for c in t_connections]
 
     mu_sm_to = JuMP.@constraint(pm.model, p_to.^2 + q_to.^2 .<= rate_a.^2)
 
     if _IM.report_duals(pm)
-        sol(pm, n, :branch, t_idx[1])[:mu_sm_to] = mu_sm_to
+        sol(pm, nw, :branch, t_idx[1])[:mu_sm_to] = mu_sm_to
     end
 end
 

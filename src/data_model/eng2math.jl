@@ -64,18 +64,13 @@ end
 
 
 "base function for converting engineering model to mathematical model"
-function _map_eng2math(data_eng::Dict{String,<:Any}; kron_reduced::Bool=true, project_phases::Bool=true)
+function _map_eng2math(data_eng::Dict{String,<:Any}; kron_reduced::Bool=true)
     @assert get(data_eng, "data_model", MATHEMATICAL) == ENGINEERING
 
     # TODO remove kron reduction from eng2math in v0.10 (breaking)
     _data_eng = deepcopy(data_eng)
     if kron_reduced && !get(data_eng, "is_kron_reduced", false)
         apply_kron_reduction!(_data_eng)
-    end
-
-    # TODO remove padding from eng2math in v0.10 (breaking)
-    if project_phases && !get(data_eng, "is_projected", false)
-        apply_phase_projection!(_data_eng)
     end
 
     data_math = Dict{String,Any}(
@@ -85,6 +80,7 @@ function _map_eng2math(data_eng::Dict{String,<:Any}; kron_reduced::Bool=true, pr
         "is_projected" => get(_data_eng, "is_projected", false),
         "is_kron_reduced" => get(_data_eng, "is_kron_reduced", false),
         "settings" => deepcopy(_data_eng["settings"]),
+        "conductors" => get(_data_eng, "conductors", []),
     )
 
     if haskey(data_eng, "time_elapsed")
@@ -93,7 +89,6 @@ function _map_eng2math(data_eng::Dict{String,<:Any}; kron_reduced::Bool=true, pr
 
     #TODO the PM tests break for branches which are not of the size indicated by conductors;
     # for now, set to 1 to prevent this from breaking when not kron-reduced
-    data_math["conductors"] = kron_reduced ? 3 : 1
 
     data_math["map"] = Vector{Dict{String,Any}}([
         Dict{String,Any}("unmap_function" => "_map_math2eng_root!")
@@ -135,7 +130,6 @@ end
 function _map_eng2math_bus!(data_math::Dict{String,<:Any}, data_eng::Dict{<:Any,<:Any})
     for (name, eng_obj) in get(data_eng, "bus", Dict{String,Any}())
         terminals = eng_obj["terminals"]
-        nconductors = data_math["conductors"]
 
         math_obj = _init_math_obj("bus", name, eng_obj, length(data_math["bus"])+1)
 
@@ -346,7 +340,6 @@ function _map_eng2math_switch!(data_math::Dict{String,<:Any}, data_eng::Dict{<:A
     # TODO enable real switches (right now only using vitual lines)
     for (name, eng_obj) in get(data_eng, "switch", Dict{Any,Dict{String,Any}}())
         nphases = length(eng_obj["f_connections"])
-        nconductors = data_math["conductors"]
 
         math_obj = _init_math_obj("switch", name, eng_obj, length(data_math["switch"])+1)
 
@@ -492,12 +485,11 @@ function _map_eng2math_generator!(data_math::Dict{String,<:Any}, data_eng::Dict{
         math_obj = _init_math_obj("generator", name, eng_obj, length(data_math["gen"])+1)
 
         connections = eng_obj["connections"]
-        nconductors = data_math["conductors"]
 
         math_obj["gen_bus"] = data_math["bus_lookup"][eng_obj["bus"]]
         math_obj["gen_status"] = Int(eng_obj["status"])
         math_obj["control_mode"] = get(eng_obj, "control_mode", FREQUENCYDROOP)
-        math_obj["pmax"] = get(eng_obj, "pg_ub", fill(Inf, nconductors))
+        math_obj["pmax"] = get(eng_obj, "pg_ub", fill(Inf, length(connections)))
 
         for (f_key, t_key) in [("qg_lb", "qmin"), ("qg_ub", "qmax"), ("pg_lb", "pmin")]
             if haskey(eng_obj, f_key)
@@ -531,7 +523,6 @@ function _map_eng2math_solar!(data_math::Dict{String,<:Any}, data_eng::Dict{<:An
         math_obj = _init_math_obj("solar", name, eng_obj, length(data_math["gen"])+1)
 
         connections = eng_obj["connections"]
-        nconductors = data_math["conductors"]
 
         math_obj["gen_bus"] = data_math["bus_lookup"][eng_obj["bus"]]
         math_obj["gen_status"] = Int(eng_obj["status"])
@@ -561,7 +552,6 @@ function _map_eng2math_storage!(data_math::Dict{String,<:Any}, data_eng::Dict{<:
         math_obj = _init_math_obj("storage", name, eng_obj, length(data_math["storage"])+1)
 
         connections = eng_obj["connections"]
-        nconductors = data_math["conductors"]
 
         math_obj["storage_bus"] = data_math["bus_lookup"][eng_obj["bus"]]
 

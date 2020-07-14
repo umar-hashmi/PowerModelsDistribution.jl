@@ -6,7 +6,7 @@ end
 
 
 ""
-function constraint_mc_slack_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
+function constraint_mc_power_balance_slack(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
     bus = ref(pm, nw, :bus, i)
     bus_arcs = ref(pm, nw, :bus_arcs, i)
     bus_arcs_sw = ref(pm, nw, :bus_arcs_sw, i)
@@ -30,7 +30,7 @@ function constraint_mc_slack_power_balance(pm::_PM.AbstractPowerModel, i::Int; n
         con(pm, nw)[:lam_kcl_i] = Dict{Int,Array{JuMP.ConstraintRef}}()
     end
 
-    constraint_mc_slack_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
+    constraint_mc_power_balance_slack(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_pd, bus_qd, bus_gs, bus_bs)
 end
 
 
@@ -159,7 +159,7 @@ end
 
 
 "KCL including transformer arcs"
-function constraint_mc_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
+function constraint_mc_power_balance_simple(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
     bus = ref(pm, nw, :bus, i)
     bus_arcs = ref(pm, nw, :bus_arcs, i)
     bus_arcs_sw = ref(pm, nw, :bus_arcs_sw, i)
@@ -183,7 +183,7 @@ function constraint_mc_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int
         con(pm, nw)[:lam_kcl_i] = Dict{Int,Array{JuMP.ConstraintRef}}()
     end
 
-    constraint_mc_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
+    constraint_mc_power_balance_simple(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
 end
 
 
@@ -229,7 +229,7 @@ end
 
 
 "KCL including transformer arcs and load variables."
-function constraint_mc_load_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
+function constraint_mc_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
     bus = ref(pm, nw, :bus, i)
     bus_arcs = ref(pm, nw, :bus_arcs_conns_branch, i)
     bus_arcs_sw = ref(pm, nw, :bus_arcs_conns_switch, i)
@@ -247,7 +247,7 @@ function constraint_mc_load_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw
         con(pm, nw)[:lam_kcl_i] = Dict{Int,Array{JuMP.ConstraintRef}}()
     end
 
-    constraint_mc_load_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
+    constraint_mc_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
 end
 
 
@@ -285,7 +285,7 @@ sn_a = v_a.conj(i_a)
     = v_a.(s_ab/(v_a-v_b) - s_ca/(v_c-v_a))
 So for delta, sn is constrained indirectly.
 """
-function constraint_mc_load_setpoint(pm::_PM.AbstractPowerModel, id::Int; nw::Int=pm.cnw, report::Bool=true)
+function constraint_mc_load_power(pm::_PM.AbstractPowerModel, id::Int; nw::Int=pm.cnw, report::Bool=true)
     load = ref(pm, nw, :load, id)
     bus = ref(pm, nw,:bus, load["load_bus"])
 
@@ -294,9 +294,9 @@ function constraint_mc_load_setpoint(pm::_PM.AbstractPowerModel, id::Int; nw::In
     a, alpha, b, beta = _load_expmodel_params(load, bus)
 
     if conn==WYE
-        constraint_mc_load_setpoint_wye(pm, nw, id, load["load_bus"], a, alpha, b, beta; report=report)
+        constraint_mc_load_power_wye(pm, nw, id, load["load_bus"], a, alpha, b, beta; report=report)
     else
-        constraint_mc_load_setpoint_delta(pm, nw, id, load["load_bus"], a, alpha, b, beta; report=report)
+        constraint_mc_load_power_delta(pm, nw, id, load["load_bus"], a, alpha, b, beta; report=report)
     end
 end
 
@@ -326,13 +326,13 @@ function constraint_mc_gen_setpoint(pm::_PM.AbstractPowerModel, id::Int; nw::Int
     if get(generator, "configuration", WYE) == WYE
         constraint_mc_gen_setpoint_wye(pm, nw, id, bus["index"], pmin, pmax, qmin, qmax; report=report, bounded=bounded)
     else
-        constraint_mc_gen_setpoint_delta(pm, nw, id, bus["index"], pmin, pmax, qmin, qmax; report=report, bounded=bounded)
+        constraint_mc_gen_power_delta(pm, nw, id, bus["index"], pmin, pmax, qmin, qmax; report=report, bounded=bounded)
     end
 end
 
 
 "KCL for load shed problem with transformers"
-function constraint_mc_shed_load_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
+function constraint_mc_power_balance_shed(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
     bus = ref(pm, nw, :bus, i)
     bus_arcs = ref(pm, nw, :bus_arcs_conns_branch, i)
     bus_arcs_sw = ref(pm, nw, :bus_arcs_conns_switch, i)
@@ -350,7 +350,7 @@ function constraint_mc_shed_load_power_balance(pm::_PM.AbstractPowerModel, i::In
         con(pm, nw)[:lam_kcl_i] = Dict{Int,Array{JuMP.ConstraintRef}}()
     end
 
-    constraint_mc_shed_load_power_balance(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
+    constraint_mc_power_balance_shed(pm, nw, i, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
 end
 
 

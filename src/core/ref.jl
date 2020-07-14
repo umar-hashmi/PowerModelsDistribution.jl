@@ -162,7 +162,7 @@ function ref_add_connections!(ref::Dict{Symbol,<:Any}, data::Dict{String,<:Any})
         nw_ref = ref[:nw][n]
 
         for (type, status) in [("gen", "gen_status"), ("load", "status"), ("shunt", "status"), ("storage", "status")]
-            nw_ref[Symbol("bus_conns_$(type)")] = Dict{Int,Any}([(bus["index"], []) for (_,bus) in data["bus"]])
+            nw_ref[Symbol("bus_conns_$(type)")] = Dict{Int,Vector{Tuple{Int,Vector{Union{String,Int}}}}}([(bus["index"], []) for (_,bus) in data["bus"]])
             for (_,obj) in get(data, type, Dict())
                 if obj[status] != 0
                     push!(nw_ref[Symbol("bus_conns_$(type)")][obj["$(type)_bus"]], (obj["index"], obj["connections"]))
@@ -171,7 +171,7 @@ function ref_add_connections!(ref::Dict{Symbol,<:Any}, data::Dict{String,<:Any})
         end
 
         for (type, status) in [("transformer", "status"), ("branch", "br_status"), ("switch", "status")]
-            nw_ref[Symbol("bus_arcs_conns_$(type)")] = Dict{Int,Any}([(bus["index"], []) for (_,bus) in data["bus"]])
+            nw_ref[Symbol("bus_arcs_conns_$(type)")] = Dict{Int,Vector{Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}}([(bus["index"], []) for (_,bus) in data["bus"]])
             for (_,obj) in get(data, type, Dict())
                 if obj[status] != 0
                     push!(nw_ref[Symbol("bus_arcs_conns_$(type)")][obj["f_bus"]], ((obj["index"], obj["f_bus"], obj["t_bus"]), obj["f_connections"]))
