@@ -30,7 +30,7 @@ function variable_mc_bus_voltage_prod_hermitian(pm::AbstractUBFModels; n_cond::I
         vmax = Dict([(id, ref(pm, nw, :bus, id, "vmax")) for id in bus_ids])
         vmin = Dict([(id, ref(pm, nw, :bus, id, "vmin")) for id in bus_ids])
         # create bounded Hermitian matrix variables
-        (Wr,Wi) = variable_mx_hermitian(pm.model, bus_ids, n_cond;
+        (Wr,Wi) = variable_mx_hermitian(pm.model, bus_ids, Dict(i => length(bus["terminals"]) for (i,bus) in ref(pm, nw, :bus));
             sqrt_upper_bound=vmax, sqrt_lower_bound=vmin, name="W", prefix="$nw")
     else
         # create unbounded Hermitian matrix variables
@@ -78,11 +78,11 @@ function constraint_mc_branch_current_series_product_hermitian(pm::AbstractUBFMo
             cmax[key] = _calc_branch_series_current_max(branch, bus_fr, bus_to)
         end
         # create matrix variables
-        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, n_cond;
+        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, Dict{Int,Int}(i => length(bus["terminals"]) for (i,bus) in ref(pm, nw, :bus));
             sqrt_upper_bound=cmax, set_lower_bound_diag_to_zero=true,
             name="CC", prefix="$nw")
     else
-        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, n_cond;
+        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, Dict{Int,Int}(i => length(bus["terminals"]) for (i,bus) in ref(pm, nw, :bus));
             set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
     end
 
@@ -828,7 +828,7 @@ S = U.I' = U.(Y.U)' = U.U'.Y' = W.Y'
 P =  Wr.G'+Wi.B'
 Q = -Wr.B'+Wi.G'
 """
-function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_gs, bus_bs)
+function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, terminals::Vector{<:Int}, grounded::Vector{<:Bool}, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Int}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Int}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{<:Int}}}, bus_gens::Vector{<:Tuple{Int,Vector{<:Int}}}, bus_storage::Vector{<:Tuple{Int,Vector{<:Int}}}, bus_loads::Vector{<:Tuple{Int,Vector{<:Int}}}, bus_shunts::Vector{<:Tuple{Int,Vector{<:Int}}})
     Wr = var(pm, nw, :Wr, i)
     Wi = var(pm, nw, :Wi, i)
 

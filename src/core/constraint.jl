@@ -4,8 +4,7 @@ end
 
 
 "Generic thermal limit constraint from-side"
-function constraint_mc_thermal_limit_from(pm::_PM.AbstractPowerModel, nw::Int, f_idx::Tuple{Int,Int,Int}, rate_a::Vector{<:Real})
-    f_connections = ref(pm, nw, :branch, f_idx[1])["f_connections"]
+function constraint_mc_thermal_limit_from(pm::_PM.AbstractPowerModel, nw::Int, f_idx::Tuple{Int,Int,Int}, f_connections::Vector{Int}, rate_a::Vector{<:Real})
     p_fr = [var(pm, nw, :p, f_idx)[c] for c in f_connections]
     q_fr = [var(pm, nw, :q, f_idx)[c] for c in f_connections]
 
@@ -18,8 +17,7 @@ end
 
 
 "Generic thermal limit constraint to-side"
-function constraint_mc_thermal_limit_to(pm::_PM.AbstractPowerModel, nw::Int, t_idx::Tuple{Int,Int,Int}, rate_a::Vector{<:Real})
-    t_connections = ref(pm, nw, :branch, t_idx[1])["t_connections"]
+function constraint_mc_thermal_limit_to(pm::_PM.AbstractPowerModel, nw::Int, t_idx::Tuple{Int,Int,Int}, t_connections::Vector{Int}, rate_a::Vector{<:Real})
     p_to = [var(pm, nw, :p, t_idx)[c] for c in t_connections]
     q_to = [var(pm, nw, :q, t_idx)[c] for c in t_connections]
 
@@ -32,76 +30,81 @@ end
 
 
 "on/off bus voltage magnitude constraint"
-function constraint_mc_bus_voltage_magnitude_on_off(pm::_PM.AbstractPowerModel, n::Int, i::Int, vmin, vmax)
-    vm = var(pm, n, :vm, i)
-    z_voltage = var(pm, n, :z_voltage, i)
+function constraint_mc_bus_voltage_magnitude_on_off(pm::_PM.AbstractPowerModel, nw::Int, i::Int, vmin::Vector{<:Real}, vmax::Vector{<:Real})
+    vm = var(pm, nw, :vm, i)
+    z_voltage = var(pm, nw, :z_voltage, i)
 
-    for c in conductor_ids(pm, n)
-        if isfinite(vmax[c])
-            JuMP.@constraint(pm.model, vm[c] <= vmax[c]*z_voltage)
+    terminals = ref(pm, nw, :bus, i)["terminals"]
+    grounded = ref(pm, nw, :bus, i)["grounded"]
+
+    for (idx, t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+        if isfinite(vmax[idx])
+            JuMP.@constraint(pm.model, vm[t] <= vmax[idx]*z_voltage)
         end
 
-        if isfinite(vmin[c])
-            JuMP.@constraint(pm.model, vm[c] >= vmin[c]*z_voltage)
+        if isfinite(vmin[t])
+            JuMP.@constraint(pm.model, vm[t] >= vmin[idx]*z_voltage)
         end
     end
 end
 
 
 "on/off bus voltage magnitude squared constraint for relaxed formulations"
-function constraint_mc_bus_voltage_magnitude_sqr_on_off(pm::_PM.AbstractPowerModel, n::Int, i::Int, vmin, vmax)
-    w = var(pm, n, :w, i)
-    z_voltage = var(pm, n, :z_voltage, i)
+function constraint_mc_bus_voltage_magnitude_sqr_on_off(pm::_PM.AbstractPowerModel, nw::Int, i::Int, vmin::Vector{<:Real}, vmax::Vector{<:Real})
+    w = var(pm, nw, :w, i)
+    z_voltage = var(pm, nw, :z_voltage, i)
 
-    for c in conductor_ids(pm, n)
-        if isfinite(vmax[c])
-            JuMP.@constraint(pm.model, w[c] <= vmax[c]^2*z_voltage)
+    terminals = ref(pm, nw, :bus, i)["terminals"]
+    grounded = ref(pm, nw, :bus, i)["grounded"]
+
+    for (idx,t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+        if isfinite(vmax[idx])
+            JuMP.@constraint(pm.model, w[t] <= vmax[idx]^2*z_voltage)
         end
 
-        if isfinite(vmin[c])
-            JuMP.@constraint(pm.model, w[c] >= vmin[c]^2*z_voltage)
+        if isfinite(vmin[idx])
+            JuMP.@constraint(pm.model, w[t] >= vmin[idx]^2*z_voltage)
         end
     end
 end
 
 
-function constraint_mc_gen_power_setpoint_real(pm::_PM.AbstractPowerModel, n::Int, i, pg)
-    pg_var = var(pm, n, :pg, i)
+function constraint_mc_gen_power_setpoint_real(pm::_PM.AbstractPowerModel, nw::Int, i::Int, pg::Vector{<:Real})
+    pg_var = [var(pm, nw, :pg, i)[c] for c in ref(pm, nw, :gen, i)["connections"]]
     JuMP.@constraint(pm.model, pg_var .== pg)
 end
 
 
 "on/off constraint for generators"
-function constraint_mc_gen_power_on_off(pm::_PM.AbstractPowerModel, n::Int, i::Int, pmin, pmax, qmin, qmax)
-    pg = var(pm, n, :pg, i)
-    qg = var(pm, n, :qg, i)
-    z = var(pm, n, :z_gen, i)
+function constraint_mc_gen_power_on_off(pm::_PM.AbstractPowerModel, nw::Int, i::Int, connections::Vector{<:Int}, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real})
+    pg = var(pm, nw, :pg, i)
+    qg = var(pm, nw, :qg, i)
+    z = var(pm, nw, :z_gen, i)
 
-    for c in conductor_ids(pm, n)
-        if isfinite(pmax[c])
-            JuMP.@constraint(pm.model, pg[c] .<= pmax[c].*z)
+    for (idx, c) in enumerate(connections)
+        if isfinite(pmax[idx])
+            JuMP.@constraint(pm.model, pg[c] .<= pmax[idx].*z)
         end
 
-        if isfinite(pmin[c])
-            JuMP.@constraint(pm.model, pg[c] .>= pmin[c].*z)
+        if isfinite(pmin[idx])
+            JuMP.@constraint(pm.model, pg[c] .>= pmin[idx].*z)
         end
 
-        if isfinite(qmax[c])
-            JuMP.@constraint(pm.model, qg[c] .<= qmax[c].*z)
+        if isfinite(qmax[idx])
+            JuMP.@constraint(pm.model, qg[c] .<= qmax[idx].*z)
         end
 
-        if isfinite(qmin[c])
-            JuMP.@constraint(pm.model, qg[c] .>= qmin[c].*z)
+        if isfinite(qmin[idx])
+            JuMP.@constraint(pm.model, qg[c] .>= qmin[idx].*z)
         end
     end
 end
 
 
 ""
-function constraint_mc_storage_thermal_limit(pm::_PM.AbstractPowerModel, n::Int, i, rating)
-    connections = ref(pm, n, :storage, i)["connections"]
-    ps = [var(pm, n, :ps, i)[c] for c in connections]
-    qs = [var(pm, n, :qs, i)[c] for c in connections]
+function constraint_mc_storage_thermal_limit(pm::_PM.AbstractPowerModel, nw::Int, i::Int, connections::Vector{Int}, rating::Vector{<:Real})
+    ps = [var(pm, nw, :ps, i)[c] for c in connections]
+    qs = [var(pm, nw, :qs, i)[c] for c in connections]
 
     JuMP.@constraint(pm.model, ps.^2 + qs.^2 .<= rating.^2)
 end

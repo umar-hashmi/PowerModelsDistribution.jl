@@ -40,7 +40,7 @@
 
         add_shunt!(eng2, "cap", "loadbus2", [1,2,3,4]; bs=diagm(0=>fill(1, 3)))
 
-        result2 = run_mc_opf(eng2, ACPPowerModel, ipopt_solver)
+        result2 = run_mc_opf(eng2, ACRPowerModel, ipopt_solver)
 
         @test result2["termination_status"] == LOCALLY_SOLVED
         @test isapprox(result2["objective"], -83.3003; atol=0.2)
@@ -75,7 +75,7 @@
 
         math = transform_data_model(eng)
 
-        pm_math = PowerModels.instantiate_model(math, ACPPowerModel, build_mc_opf; ref_extensions=[ref_add_arcs_transformer!])
+        pm_math = instantiate_mc_model(math, ACPPowerModel, build_mc_opf)
 
         @test sprint(print, pm_eng) == sprint(print, pm_math)
     end

@@ -157,12 +157,12 @@ The returned bounds are for the pairs 1->2, 2->3, 3->1
 function _calc_bus_vm_ll_bounds(bus::Dict; vdmin_eps=0.1)
     vmax = bus["vmax"]
     vmin = bus["vmin"]
+    terminals = bus["terminals"]
     if haskey(bus, "vm_ll_max")
         vdmax = bus["vm_ll_max"]
     else
         # implied valid upper bound
-        vdmax = _mat_mult_rm_nan([1 1 0; 0 1 1; 1 0 1], vmax)
-        id = bus["index"]
+        vdmax = _mat_mult_rm_nan([1 1 0; 0 1 1; 1 0 1][terminals,terminals], vmax)
     end
     if haskey(bus, "vm_ll_min")
         vdmin = bus["vm_ll_min"]
@@ -523,6 +523,28 @@ function _make_multiconductor!(data::Dict{String,<:Any}, conductors::Real)
     for (_, load) in data["gen"]
         load["configuration"] = WYE
     end
+
+    for type in ["load", "gen", "storage", "shunt"]
+        if haskey(data, type)
+            for (_,obj) in data[type]
+                obj["connections"] = collect(1:conductors)
+            end
+        end
+    end
+
+    for type in ["branch", "transformer", "switch"]
+        if haskey(data, type)
+            for (_,obj) in data[type]
+                obj["f_connections"] = collect(1:conductors)
+                obj["t_connections"] = collect(1:conductors)
+            end
+        end
+    end
+
+    for (_,bus) in data["bus"]
+        bus["terminals"] = collect(1:conductors)
+        bus["grounded"] = fill(false, conductors)
+    end
 end
 
 
@@ -657,6 +679,12 @@ function _has_nl_expression(x)::Bool
                 return true
             end
         end
+    elseif isa(x, JuMP.Containers.DenseAxisArray)
+        for i in values(x.data)
+            if _has_nl_expression(i)
+                return true
+            end
+        end
     end
     return false
 end
@@ -775,7 +803,7 @@ function count_active_connections(data::Dict{String,<:Any})
                     for (i, terminal) in enumerate(connections)
                         if !(terminal in counted_connections)
                             if data_model == ENGINEERING
-                                if edge_type == "transformer" && component["configuration"] == WYE && terminal != connections[end]
+                                if edge_type == "transformer" && (get(data, "is_kron_reduced", false) || (component["configuration"] == WYE && terminal != connections[end]))
                                     push!(counted_connections, terminal)
                                     active_connections += 1
                                 elseif !(terminal in data["bus"][bus]["grounded"])
@@ -784,7 +812,7 @@ function count_active_connections(data::Dict{String,<:Any})
                                 end
                             else
                                 if edge_type == "transformer"
-                                    if component["configuration"] == DELTA || (component["configuration"] == WYE && terminal != connections[end])
+                                    if get(data, "is_kron_reduced", false) || component["configuration"] == DELTA || (component["configuration"] == WYE && terminal != connections[end])
                                         push!(counted_connections, terminal)
                                         active_connections += 1
                                     end
@@ -836,4 +864,100 @@ function count_active_terminals(data::Dict{String,<:Any}; count_grounded::Bool=f
         end
     end
     return active_terminal_count
+end
+
+
+"checks that voltage angle differences are within 90 deg., if not tightens"
+function correct_mc_voltage_angle_differences!(data::Dict{String,<:Any}, default_pad::Real=1.0472)
+    if _IM.ismultinetwork(data)
+        Memento.error(_LOGGER, "correct_voltage_angle_differences! does not yet support multinetwork data")
+    end
+
+    @assert("per_unit" in keys(data) && data["per_unit"])
+    default_pad_deg = round(rad2deg(default_pad), digits=2)
+
+    modified = Set{Int}()
+
+    for (i, branch) in data["branch"]
+        angmin = branch["angmin"]
+        angmax = branch["angmax"]
+
+        if any(angmin .<= -pi/2)
+            Memento.warn(_LOGGER, "this code only supports angmin values in -90 deg. to 90 deg., tightening the value on branch $i from $(rad2deg(angmin)) to -$(default_pad_deg) deg.")
+            branch["angmin"][angmin .<= -pi/2] .= -default_pad
+
+            push!(modified, branch["index"])
+        end
+
+        if any(angmax .>= pi/2)
+            Memento.warn(_LOGGER, "this code only supports angmax values in -90 deg. to 90 deg., tightening the value on branch $i from $(rad2deg(angmax)) to $(default_pad_deg) deg.")
+            branch["angmax"][angmax .>= pi/2] .= default_pad
+
+            push!(modified, branch["index"])
+        end
+
+        if any((angmin .== 0.0) .& (angmax .== 0.0))
+            Memento.warn(_LOGGER, "angmin and angmax values are 0, widening these values on branch $i to +/- $(default_pad_deg) deg.")
+            branch["angmin"][(angmin .== 0.0) .& (angmax .== 0.0)] .= -default_pad
+            branch["angmax"][(angmin .== 0.0) .& (angmax .== 0.0)] .=  default_pad
+
+            push!(modified, branch["index"])
+        end
+    end
+
+    return modified
+end
+
+
+"checks that each branch has non-negative thermal ratings and removes zero thermal ratings"
+function correct_mc_thermal_limits!(data::Dict{String,<:Any})
+    if _IM.ismultinetwork(data)
+        Memento.error(_LOGGER, "correct_thermal_limits! does not yet support multinetwork data")
+    end
+
+    modified = Set{Int}()
+
+    branches = [branch for branch in values(data["branch"])]
+    if haskey(data, "ne_branch")
+        append!(branches, values(data["ne_branch"]))
+    end
+
+    for branch in branches
+        for rate_key in ["rate_a", "rate_b", "rate_c"]
+            if haskey(branch, rate_key)
+                rate_value = branch[rate_key]
+
+                if any(rate_value .< 0.0)
+                    Memento.error(_LOGGER, "negative $(rate_key) value on branch $(branch["index"]), this code only supports non-negative $(rate_key) values")
+                end
+
+                if all(isapprox.(rate_value, 0.0))
+                    delete!(branch, rate_key)
+                    Memento.warn(_LOGGER, "removing zero $(rate_key) limit on branch $(branch["index"])")
+
+                    push!(modified, branch["index"])
+                end
+            end
+        end
+    end
+
+    return modified
+end
+
+
+function _build_bus_shunt_matrices(pm::_PM.AbstractPowerModel, nw::Int, terminals::Vector{<:Int}, bus_shunts::Vector{<:Tuple{Int,Vector{<:Int}}})::Tuple{Matrix{<:Real},Matrix{<:Real}}
+    ncnds = length(terminals)
+    Gs = fill(0.0, ncnds, ncnds)
+    Bs = fill(0.0, ncnds, ncnds)
+    for (i, connections) in bus_shunts
+        shunt = ref(pm,nw,:shunt,i)
+        for (idx,c) in enumerate(connections)
+            for (jdx,d) in enumerate(connections)
+                Gs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["gs"][idx,jdx]
+                Bs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["bs"][idx,jdx]
+            end
+        end
+    end
+
+    return (Gs, Bs)
 end

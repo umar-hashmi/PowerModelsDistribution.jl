@@ -91,27 +91,27 @@ The diag argument is a dictionary of (index, 1d-array) pairs.
 Useful for power matrices with specified diagonals (constant power wye loads).
 If not specified, the diagonal elements are set to zero.
 """
-function variable_mx_real_with_diag(model::JuMP.Model, indices::Array{T,1}, N::Int;
+function variable_mx_real_with_diag(model::JuMP.Model, indices::Array{T,1}, N::Dict{Int,Int};
         upper_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         lower_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         diag::Dict{T,<:Array{<:Any,1}}=Dict([(i, fill(0, N)) for i in indices]),
         name="", prefix="") where T
     # the output is a dictionary of (index, matrix) pairs
-    dict_mat_vars = Dict{T,Array{JuMP.GenericAffExpr{Float64,JuMP.VariableRef},2}}([(index, zeros(N,N)) for index in indices])
-    for n in 1:N
-        for m in 1:N
-            if n==m
-                for index in indices
+    dict_mat_vars = Dict{T,Array{JuMP.GenericAffExpr{Float64,JuMP.VariableRef},2}}([(index, zeros(N[index],N[index])) for index in indices])
+    for index in indices
+        for n in 1:N[index]
+            for m in 1:N[index]
+                if n==m
                     dict_mat_vars[index][n,n] = diag[index][n]
-                end
-            else
-                varname = isempty(prefix) ? "$(name)_$(n)$(m)" : "$(prefix)_$(name)_$(n)$(m)"
-                # create the element (n,m) for all indices
-                mat_nm = _make_matrix_variable_element(model, indices, n, m;
-                    upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)
-                # unpack element (n,m) to the correct place in the ouput dict
-                for index in indices
-                    dict_mat_vars[index][n,m] = mat_nm[index]
+                else
+                    varname = isempty(prefix) ? "$(name)_$(n)$(m)" : "$(prefix)_$(name)_$(n)$(m)"
+                    # create the element (n,m) for all indices
+                    mat_nm = _make_matrix_variable_element(model, indices, n, m;
+                        upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)
+                    # unpack element (n,m) to the correct place in the ouput dict
+                    for index in indices
+                        dict_mat_vars[index][n,m] = mat_nm[index]
+                    end
                 end
             end
         end
@@ -196,7 +196,7 @@ function variable_mx_real_symmetric(model::JuMP.Model, indices::Array{T,1}, N::D
     # the data type of the matrix has to be JuMP.GenericAffExpr, because it
     # will also contain inverted variables (upper triangle) and potentially
     # constants (zero) on the diagonal
-    dict_mat_vars = Dict{T, Array{Any, 2}}([(index, zeros(N,N)) for index in indices])
+    dict_mat_vars = Dict{T, Array{Any, 2}}([(index, zeros(N[index],N[index])) for index in indices])
     for index in indices
         for n in 1:N[index]
             for m in 1:n
@@ -236,7 +236,7 @@ function variable_mx_real_skewsymmetric(model::JuMP.Model, indices::Array{T,1}, 
     # the data type of the matrix has to be JuMP.GenericAffExpr, because it
     # will also contain inverted variables (upper triangle) and potentially
     # constants (zero) on the diagonal
-    dict_mat_vars = Dict{T, Array{JuMP.GenericAffExpr{Float64,JuMP.VariableRef}, 2}}([(index, zeros(N,N)) for index in indices])
+    dict_mat_vars = Dict{T, Array{JuMP.GenericAffExpr{Float64,JuMP.VariableRef}, 2}}([(index, zeros(N[index],N[index])) for index in indices])
     for index in indices
         for n in 1:N[index]
             for m in 1:n

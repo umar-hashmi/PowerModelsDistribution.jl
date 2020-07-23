@@ -78,7 +78,7 @@ function build_mc_pf(pm::_PM.AbstractIVRModel)
     variable_mc_branch_current(pm, bounded = false)
     variable_mc_transformer_current(pm, bounded = false)
     variable_mc_gen_current(pm, bounded = false)
-    variable_mc_load_power(pm, bounded = false)
+    variable_mc_load_current(pm, bounded = false)
 
     # Constraints
     for (i,bus) in ref(pm, :ref_buses)
@@ -98,7 +98,7 @@ function build_mc_pf(pm::_PM.AbstractIVRModel)
     end
 
     for (i,bus) in ref(pm, :bus)
-        constraint_mc_load_current_balance(pm, i)
+        constraint_mc_current_balance(pm, i)
 
         # PV Bus Constraints
         if length(ref(pm, :bus_gens, i)) > 0 && !(i in ids(pm,:ref_buses))

@@ -45,7 +45,7 @@
             pmd = parse_file("../test/data/opendss/case3_unbalanced_missingedge.dss")
             sol = run_mc_opf(pmd, LPUBFDiagPowerModel, ipopt_solver)
             @test sol["termination_status"] == LOCALLY_SOLVED
-            @test norm(sol["solution"]["bus"]["loadbus"]["w"]-[0.92234, 0.95778, 0.0], Inf) <= 1E-4
+            @test norm(sol["solution"]["bus"]["loadbus"]["w"]-[0.92234, 0.95778], Inf) <= 1E-4
         end
     end
 

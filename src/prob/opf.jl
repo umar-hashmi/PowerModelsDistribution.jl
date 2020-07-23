@@ -77,7 +77,7 @@ function build_mc_opf(pm::_PM.AbstractIVRModel)
     variable_mc_branch_current(pm)
     variable_mc_transformer_current(pm)
     variable_mc_gen_current(pm)
-    variable_mc_load_power(pm)
+    variable_mc_load_current(pm)
 
     # Constraints
     for i in ids(pm, :ref_buses)
@@ -95,7 +95,7 @@ function build_mc_opf(pm::_PM.AbstractIVRModel)
     end
 
     for i in ids(pm, :bus)
-        constraint_mc_load_current_balance(pm, i)
+        constraint_mc_current_balance(pm, i)
     end
 
     for i in ids(pm, :branch)
@@ -267,7 +267,7 @@ function build_mn_mc_opf(pm::_PM.AbstractIVRModel)
         end
 
         for i in ids(pm, n, :bus)
-            constraint_mc_load_current_balance(pm, i; nw=n)
+            constraint_mc_current_balance(pm, i; nw=n)
         end
 
         for i in ids(pm, n, :storage)

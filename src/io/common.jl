@@ -31,6 +31,8 @@ function parse_file(
             end
         end
 
+        find_conductor_ids!(data_eng)
+
         if data_model == MATHEMATICAL
             return transform_data_model(data_eng;
                 make_pu=true,
@@ -88,6 +90,8 @@ function transform_data_model(data::Dict{String,<:Any};
             data_math = _map_eng2math(data; kron_reduced=kron_reduced)
         end
 
+        find_conductor_ids!(data_math)
+
         correct_network_data!(data_math; make_pu=make_pu)
 
         return data_math
@@ -119,8 +123,8 @@ function correct_network_data!(data::Dict{String,Any}; make_pu::Bool=true)
                 data["baseMVA"] = data["settings"]["sbase"]*data["settings"]["power_scale_factor"]/1E6
                 data["basekv"]  = maximum(bus["vbase"] for (_, bus) in data["bus"])
                 _PM.check_connectivity(data)
-                _PM.correct_voltage_angle_differences!(data)
-                _PM.correct_thermal_limits!(data)
+                correct_mc_voltage_angle_differences!(data)
+                correct_mc_thermal_limits!(data)
                 _PM.correct_branch_directions!(data)
                 _PM.check_branch_loops(data)
                 _PM.correct_bus_types!(data)

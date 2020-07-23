@@ -57,11 +57,7 @@ end
 
 
 ""
-function constraint_mc_power_balance_slack(pm::_PM.AbstractACPModel, nw::Int, i::Int, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_gens::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_storage::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_loads::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_shunts::Vector{<:Tuple{Int,Vector{Union{String,Int}}}})
-    bus = ref(pm, nw, :bus, i)
-    terminals = bus["terminals"]
-    grounded = bus["grounded"]
-
+function constraint_mc_power_balance_slack(pm::_PM.AbstractACPModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
     vm   = var(pm, nw, :vm, i)
     va   = var(pm, nw, :va, i)
     p    = get(var(pm, nw),    :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
@@ -77,56 +73,58 @@ function constraint_mc_power_balance_slack(pm::_PM.AbstractACPModel, nw::Int, i:
     p_slack = var(pm, nw, :p_slack, i)
     q_slack = var(pm, nw, :q_slack, i)
 
+    Gt, Bt = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
+
     ncnds = length(terminals)
-    Gs = fill(0.0, ncnds, ncnds)
-    Bs = fill(0.0, ncnds, ncnds)
-    for (i, connections) in bus_shunts
-        shunt = ref(pm,nw,:shunt,i)
-        for (idx,c) in enumerate(connections)
-            for (jdx,d) in enumerate(connections)
-                Gs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["gs"][idx,jdx]
-                Bs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["bs"][idx,jdx]
-            end
+    Pd = fill(0.0, ncnds)
+    Qd = fill(0.0, ncnds)
+    for (ld_i, connections) in bus_loads
+        load = ref(pm, nw, :load, ld_i)
+        for (idx, c) in enumerate(connections)
+            Pd[findfirst(isequal(c), terminals)] += load["pd"][idx]
+            Qd[findfirst(isequal(c), terminals)] += load["qd"][idx]
         end
     end
 
     cstr_p = []
     cstr_q = []
 
-    for (idx,t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+
+    for (idx,t) in ungrounded_terminals
         cp = JuMP.@NLconstraint(pm.model,
-            sum(p[a][c] for a in bus_arcs)
-            + sum(psw[a_sw][c] for a_sw in bus_arcs_sw)
-            + sum(pt[a_trans][c] for a_trans in bus_arcs_trans)
+              sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
             ==
-            sum(pg[g][c] for g in bus_gens)
-            - sum(ps[s][c] for s in bus_storage)
-            - sum(pd[c] for pd in values(bus_pd))
+              sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
+            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
+            - Pd[idx]
             - ( # shunt
-                Gt[c,c] * vm[c]^2
-                +sum( Gt[c,d] * vm[c]*vm[d] * cos(va[c]-va[d])
-                     +Bt[c,d] * vm[c]*vm[d] * sin(va[c]-va[d])
-                     for d in cnds if d != c)
+                Gt[idx,idx] * vm[t]^2
+                +sum( Gt[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                     +Bt[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                     for (jdx,u) in ungrounded_terminals if idx != jdx)
             )
-            + p_slack[c]
+            + p_slack[t]
         )
         push!(cstr_p, cp)
 
         cq = JuMP.@NLconstraint(pm.model,
-            sum(q[a][c] for a in bus_arcs)
-            + sum(qsw[a_sw][c] for a_sw in bus_arcs_sw)
-            + sum(qt[a_trans][c] for a_trans in bus_arcs_trans)
+              sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
             ==
-            sum(qg[g][c] for g in bus_gens)
-            - sum(qs[s][c] for s in bus_storage)
-            - sum(qd[c] for qd in values(bus_qd))
+              sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
+            - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
+            - Qd[idx]
             - ( # shunt
-                -Bt[c,c] * vm[c]^2
-                -sum( Bt[c,d] * vm[c]*vm[d] * cos(va[c]-va[d])
-                     -Gt[c,d] * vm[c]*vm[d] * sin(va[c]-va[d])
-                     for d in cnds if d != c)
+                -Bt[idx,idx] * vm[t]^2
+                -sum( Bt[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                     -Gt[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                     for (jdx,u) in ungrounded_terminals if idx != jdx)
             )
-            + q_slack[c]
+            + q_slack[t]
         )
         push!(cstr_q, cq)
 
@@ -143,11 +141,7 @@ end
 
 
 ""
-function constraint_mc_power_balance_shed(pm::_PM.AbstractACPModel, nw::Int, i::Int, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_gens::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_storage::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_loads::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_shunts::Vector{<:Tuple{Int,Vector{Union{String,Int}}}})
-    bus = ref(pm, nw, :bus, i)
-    terminals = bus["terminals"]
-    grounded = bus["grounded"]
-
+function constraint_mc_power_balance_shed(pm::_PM.AbstractACPModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
     vm       = var(pm, nw, :vm, i)
     va       = var(pm, nw, :va, i)
     p        = get(var(pm, nw),    :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
@@ -163,54 +157,43 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACPModel, nw::Int, i::
     z_demand = var(pm, nw, :z_demand)
     z_shunt  = var(pm, nw, :z_shunt)
 
-    ncnds = length(terminals)
-    Gs = fill(0.0, ncnds, ncnds)
-    Bs = fill(0.0, ncnds, ncnds)
-    for (i, connections) in bus_shunts
-        shunt = ref(pm,nw,:shunt,i)
-        for (idx,c) in enumerate(connections)
-            for (jdx,d) in enumerate(connections)
-                Gs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["gs"][idx,jdx]
-                Bs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["bs"][idx,jdx]
-            end
-        end
-    end
-
     cstr_p = []
     cstr_q = []
 
-    for (idx,t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+
+    for (idx,t) in ungrounded_terminals
         cp = JuMP.@NLconstraint(pm.model,
-            sum(p[a][c] for a in bus_arcs)
-            + sum(psw[a_sw][c] for a_sw in bus_arcs_sw)
-            + sum(pt[a_trans][c] for a_trans in bus_arcs_trans)
+              sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
             ==
-            sum(pg[g][c] for g in bus_gens)
-            - sum(ps[s][c] for s in bus_storage)
-            - sum(pd[c]*z_demand[n] for (n,pd) in bus_pd)
-            - sum( # shunt
-                Gt[c,c] * vm[c]^2
-                +sum( Gt[c,d] * vm[c]*vm[d] * cos(va[c]-va[d])
-                     +Bt[c,d] * vm[c]*vm[d] * sin(va[c]-va[d])
-                     for d in cnds if d != c)
-              for (n,Gs,Bs) in bus_GsBs)
+              sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
+            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
+            - sum(ref(pm, nw, :load, l)["pd"][findfirst(isequal(t), conns)] * z_demand[l] for (l, conns) in bus_loads if t in conns)
+            - sum( z_shunt[sh] *
+                (ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)][findfirst(isequal(t), conns)] * vm[t]^2
+                +sum( ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * cos(va[t]-va[u])
+                     +ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * sin(va[t]-va[u])
+                for (jdx, u) in ungrounded_terminals if idx != jdx ) )
+            for (sh, conns) in bus_shunts if t in conns )
         )
         push!(cstr_p, cp)
 
         cq = JuMP.@NLconstraint(pm.model,
-            sum(q[a][c] for a in bus_arcs)
-            + sum(qsw[a_sw][c] for a_sw in bus_arcs_sw)
-            + sum(qt[a_trans][c] for a_trans in bus_arcs_trans)
+              sum(  p[a][t] for (a, conns) in bus_arcs)
+            + sum(psw[a][t] for (a, conns) in bus_arcs_sw)
+            + sum( pt[a][t] for (a, conns) in bus_arcs_trans)
             ==
-            sum(qg[g][c] for g in bus_gens)
-            - sum(qs[s][c] for s in bus_storage)
-            - sum(qd[c]*z_demand[n] for (n,qd) in bus_qd)
-            - sum( # shunt
-                -Bt[c,c] * vm[c]^2
-                -sum( Bt[c,d] * vm[c]*vm[d] * cos(va[c]-va[d])
-                     -Gt[c,d] * vm[c]*vm[d] * sin(va[c]-va[d])
-                     for d in cnds if d != c)
-              for (n,Gs,Bs) in bus_GsBs)
+              sum(pg[g][t] for (g, conns) in bus_gens)
+            - sum(ps[s][t] for (s, conns) in bus_storage)
+            - sum(ref(pm, nw, :load, l)["qd"][findfirst(isequal(t), conns)] * z_demand[l] for (l, conns) in bus_loads if t in conns)
+            - sum( z_shunt[sh] *
+                (-ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)][findfirst(isequal(t), conns)] * vm[t]^2
+                 -sum( ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * cos(va[t]-va[u])
+                     -ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * sin(va[t]-va[u])
+                for (jdx, u) in ungrounded_terminals if idx != jdx ) )
+            for (sh, conns) in bus_shunts if t in conns )
         )
         push!(cstr_q, cq)
 
@@ -227,11 +210,7 @@ end
 
 
 ""
-function constraint_mc_power_balance_simple(pm::_PM.AbstractACPModel, nw::Int, i::Int, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_gens::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_storage::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_loads::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_shunts::Vector{<:Tuple{Int,Vector{Union{String,Int}}}})
-    bus = ref(pm, nw, :bus, i)
-    terminals = bus["terminals"]
-    grounded = bus["grounded"]
-
+function constraint_mc_power_balance_simple(pm::_PM.AbstractACPModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
     vm   = var(pm, nw, :vm, i)
     va   = var(pm, nw, :va, i)
     p    = get(var(pm, nw),    :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
@@ -245,36 +224,38 @@ function constraint_mc_power_balance_simple(pm::_PM.AbstractACPModel, nw::Int, i
     pt   = get(var(pm, nw),   :pt, Dict()); _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
     qt   = get(var(pm, nw),   :qt, Dict()); _PM._check_var_keys(qt, bus_arcs_trans, "reactive power", "transformer")
 
+    Gt, Bt = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
+
     ncnds = length(terminals)
-    Gs = fill(0.0, ncnds, ncnds)
-    Bs = fill(0.0, ncnds, ncnds)
-    for (i, connections) in bus_shunts
-        shunt = ref(pm,nw,:shunt,i)
-        for (idx,c) in enumerate(connections)
-            for (jdx,d) in enumerate(connections)
-                Gs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["gs"][idx,jdx]
-                Bs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["bs"][idx,jdx]
-            end
+    Pd = fill(0.0, ncnds)
+    Qd = fill(0.0, ncnds)
+    for (ld_i, connections) in bus_loads
+        load = ref(pm, nw, :load, ld_i)
+        for (idx, c) in enumerate(connections)
+            Pd[findfirst(isequal(c), terminals)] += load["pd"][idx]
+            Qd[findfirst(isequal(c), terminals)] += load["qd"][idx]
         end
     end
 
     cstr_p = []
     cstr_q = []
 
-    for (idx,t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+
+    for (idx,t) in ungrounded_terminals
         cp = JuMP.@NLconstraint(pm.model,
-            sum(p[a][c] for a in bus_arcs)
-            + sum(psw[a_sw][c] for a_sw in bus_arcs_sw)
-            + sum(pt[a_trans][c] for a_trans in bus_arcs_trans)
+              sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
             ==
-            sum(pg[g][c] for g in bus_gens)
-            - sum(ps[s][c] for s in bus_storage)
-            - sum(pd[c] for pd in values(bus_pd))
+              sum(pg[g][t] for (g, conns) in bus_gens)
+            - sum(ps[s][t] for (s, conns) in bus_storage)
+            - Pd[idx]
             - ( # shunt
-                Gt[c,c] * vm[c]^2
-                +sum( Gt[c,d] * vm[c]*vm[d] * cos(va[c]-va[d])
-                     +Bt[c,d] * vm[c]*vm[d] * sin(va[c]-va[d])
-                     for d in cnds if d != c)
+                Gt[idx,idx] * vm[t]^2
+                +sum( Gt[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                     +Bt[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                     for (jdx,u) in ungrounded_terminals if idx != jdx)
             )
         )
         push!(cstr_p, cp)
@@ -286,12 +267,12 @@ function constraint_mc_power_balance_simple(pm::_PM.AbstractACPModel, nw::Int, i
             ==
             sum(qg[g][c] for g in bus_gens)
             - sum(qs[s][c] for s in bus_storage)
-            - sum(qd[c] for qd in values(bus_qd))
+            - Qd[idx]
             - ( # shunt
-                -Bt[c,c] * vm[c]^2
-                -sum( Bt[c,d] * vm[c]*vm[d] * cos(va[c]-va[d])
-                     -Gt[c,d] * vm[c]*vm[d] * sin(va[c]-va[d])
-                     for d in cnds if d != c)
+                -Bt[idx,idx] * vm[t]^2
+                -sum( Bt[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                     -Gt[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                     for (jdx,u) in ungrounded_terminals if idx != jdx)
             )
         )
         push!(cstr_q, cq)
@@ -308,76 +289,89 @@ end
 
 
 ""
-function constraint_mc_power_balance(pm::_PM.AbstractACPModel, nw::Int, i::Int, bus_arcs::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_sw::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_arcs_trans::Vector{<:Tuple{Tuple{Int,Int,Int},Vector{Union{String,Int}}}}, bus_gens::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_storage::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_loads::Vector{<:Tuple{Int,Vector{Union{String,Int}}}}, bus_shunts::Vector{<:Tuple{Int,Vector{Union{String,Int}}}})
-    bus = ref(pm, nw, :bus, i)
-    terminals = bus["terminals"]
-    grounded = bus["grounded"]
-
+function constraint_mc_power_balance(pm::_PM.AbstractACPModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
     vm   = var(pm, nw, :vm, i)
     va   = var(pm, nw, :va, i)
-    p    = get(var(pm, nw),   :p, Dict()); _PM._check_var_keys(p, bus_arcs, "active power", "branch")
-    q    = get(var(pm, nw),   :q, Dict()); _PM._check_var_keys(q, bus_arcs, "reactive power", "branch")
-    pg   = get(var(pm, nw),  :pg_bus, Dict()); _PM._check_var_keys(pg, bus_gens, "active power", "generator")
-    qg   = get(var(pm, nw),  :qg_bus, Dict()); _PM._check_var_keys(qg, bus_gens, "reactive power", "generator")
-    ps   = get(var(pm, nw),  :ps, Dict()); _PM._check_var_keys(ps, bus_storage, "active power", "storage")
-    qs   = get(var(pm, nw),  :qs, Dict()); _PM._check_var_keys(qs, bus_storage, "reactive power", "storage")
-    psw  = get(var(pm, nw), :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
-    qsw  = get(var(pm, nw), :qsw, Dict()); _PM._check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
-    pt   = get(var(pm, nw),  :pt, Dict()); _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
-    qt   = get(var(pm, nw),  :qt, Dict()); _PM._check_var_keys(qt, bus_arcs_trans, "reactive power", "transformer")
-    pd   = get(var(pm, nw),  :pd_bus, Dict()); _PM._check_var_keys(pd, bus_loads, "active power", "load")
-    qd   = get(var(pm, nw),  :qd_bus, Dict()); _PM._check_var_keys(pd, bus_loads, "reactive power", "load")
+    p    = get(var(pm, nw),      :p, Dict()); _PM._check_var_keys(  p, bus_arcs, "active power", "branch")
+    q    = get(var(pm, nw),      :q, Dict()); _PM._check_var_keys(  q, bus_arcs, "reactive power", "branch")
+    pg   = get(var(pm, nw), :pg_bus, Dict()); _PM._check_var_keys( pg, bus_gens, "active power", "generator")
+    qg   = get(var(pm, nw), :qg_bus, Dict()); _PM._check_var_keys( qg, bus_gens, "reactive power", "generator")
+    ps   = get(var(pm, nw),     :ps, Dict()); _PM._check_var_keys( ps, bus_storage, "active power", "storage")
+    qs   = get(var(pm, nw),     :qs, Dict()); _PM._check_var_keys( qs, bus_storage, "reactive power", "storage")
+    psw  = get(var(pm, nw),    :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
+    qsw  = get(var(pm, nw),    :qsw, Dict()); _PM._check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
+    pt   = get(var(pm, nw),     :pt, Dict()); _PM._check_var_keys( pt, bus_arcs_trans, "active power", "transformer")
+    qt   = get(var(pm, nw),     :qt, Dict()); _PM._check_var_keys( qt, bus_arcs_trans, "reactive power", "transformer")
+    pd   = get(var(pm, nw), :pd_bus, Dict()); _PM._check_var_keys( pd, bus_loads, "active power", "load")
+    qd   = get(var(pm, nw), :qd_bus, Dict()); _PM._check_var_keys( pd, bus_loads, "reactive power", "load")
 
-    ncnds = length(terminals)
-    Gs = fill(0.0, ncnds, ncnds)
-    Bs = fill(0.0, ncnds, ncnds)
-    for (i, connections) in bus_shunts
-        shunt = ref(pm,nw,:shunt,i)
-        for (idx,c) in enumerate(connections)
-            for (jdx,d) in enumerate(connections)
-                Gs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["gs"][idx,jdx]
-                Bs[findfirst(isequal(c), terminals),findfirst(isequal(d), terminals)] += shunt["bs"][idx,jdx]
-            end
-        end
-    end
+    Gs, Bs = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
 
     cstr_p = []
     cstr_q = []
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
-    for (idx,t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
-        cp = JuMP.@NLconstraint(pm.model,
-              sum(p[a][t] for (a, conns) in bus_arcs if t in conns)
-            + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
-            + sum(pt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
-            ==
-              sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
-            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
-            - sum(pd[l][t] for (l, conns) in bus_loads if t in conns)
-            - ( # shunt
-                Gs[idx,idx] * vm[t]^2
-                +sum( Gs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
-                     +Bs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
-                     for (jdx,u) in [(jdx,u) for (jdx,u) in enumerate(terminals) if !grounded[jdx]] if idx != jdx)
+    for (idx,t) in ungrounded_terminals
+        if any(Bs[idx,jdx] != 0 for (jdx, u) in ungrounded_terminals if idx != jdx) || any(Gs[idx,jdx] != 0 for (jdx, u) in ungrounded_terminals if idx != jdx)
+            cp = JuMP.@NLconstraint(pm.model,
+                sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+                + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+                + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+                ==
+                sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
+                - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
+                - sum(pd[l][t] for (l, conns) in bus_loads if t in conns)
+                + ( # shunt
+                -Gs[idx,idx] * vm[t]^2
+                -sum( Gs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                        +Bs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                        for (jdx,u) in ungrounded_terminals if idx != jdx)
+                )
             )
-        )
-        push!(cstr_p, cp)
+            push!(cstr_p, cp)
 
-        cq = JuMP.@NLconstraint(pm.model,
-              sum(q[a][t] for (a, conns) in bus_arcs if t in conns)
-            + sum(qsw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
-            + sum(qt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
-            ==
-              sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
-            - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
-            - sum(qd[l][t] for (l, conns) in bus_loads if t in conns)
-            - ( # shunt
-                -Bs[idx,idx] * vm[t]^2
-                -sum( Bs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
-                     -Gs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
-                     for (jdx,u) in [(jdx,u) for (jdx,u) in enumerate(terminals) if !grounded[jdx]] if idx != jdx)
+            cq = JuMP.@NLconstraint(pm.model,
+                sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
+                + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+                + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+                ==
+                sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
+                - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
+                - sum( qd[l][t] for (l, conns) in bus_loads if t in conns)
+                + ( # shunt
+                    Bs[idx,idx] * vm[t]^2
+                    +sum( Bs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                        -Gs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                        for (jdx,u) in ungrounded_terminals if idx != jdx)
+                )
             )
-        )
-        push!(cstr_q, cq)
+            push!(cstr_q, cq)
+
+        else
+            cp = @smart_constraint(pm.model, [p, q, pg, qg, ps, qs, psw, qsw, pt, qt, pd, qd, vm, va],
+                  sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+                + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+                + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+                ==
+                  sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
+                - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
+                - sum(pd[l][t] for (l, conns) in bus_loads if t in conns)
+                - Gs[idx,idx] * vm[t]^2
+            )
+            push!(cstr_p, cp)
+
+            cq = @smart_constraint(pm.model, [p, q, pg, qg, ps, qs, psw, qsw, pt, qt, pd, qd, vm, va],
+                  sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
+                + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+                + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+                ==
+                  sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
+                - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
+                - sum( qd[l][t] for (l, conns) in bus_loads if t in conns)
+                + Bs[idx,idx] * vm[t]^2
+            )
+            push!(cstr_q, cq)
+        end
     end
 
     con(pm, nw, :lam_kcl_r)[i] = cstr_p
@@ -414,10 +408,7 @@ q_fr == -b[c,c] *vm_fr[c]^2 -
             )
 ```
 """
-function constraint_mc_ohms_yt_from(pm::_PM.AbstractACPModel, nw::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, G::Matrix{<:Real}, B::Matrix{<:Real}, G_fr::Matrix{<:Real}, B_fr::Matrix{<:Real})
-    f_connections = ref(pm, nw, :branch, f_idx[1])["f_connections"]
-    t_connections = ref(pm, nw, :branch, f_idx[1])["t_connections"]
-
+function constraint_mc_ohms_yt_from(pm::_PM.AbstractACPModel, nw::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, f_connections::Vector{Int}, t_connections::Vector{Int}, G::Matrix{<:Real}, B::Matrix{<:Real}, G_fr::Matrix{<:Real}, B_fr::Matrix{<:Real})
     p_fr  = var(pm, nw,  :p, f_idx)
     q_fr  = var(pm, nw,  :q, f_idx)
     vm_fr = var(pm, nw, :vm, f_bus)
@@ -426,23 +417,23 @@ function constraint_mc_ohms_yt_from(pm::_PM.AbstractACPModel, nw::Int, f_bus::In
     va_to = var(pm, nw, :va, t_bus)
 
     for (idx, (fc,tc)) in enumerate(zip(f_connections,t_connections))
-        JuMP.@NLconstraint(pm.model, p_fr[fc] ==
-                                        (G[idx,idx]+G_fr[idx,idx])*vm_fr[fc]^2
-                                        +sum( (G[idx,jdx]+G_fr[idx,jdx]) * vm_fr[fc]*vm_fr[fd]*cos(va_fr[fc]-va_fr[fd])
-                                             +(B[idx,jdx]+B_fr[idx,jdx]) * vm_fr[fc]*vm_fr[fd]*sin(va_fr[fc]-va_fr[fd])
-                                             for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)) if idx != jdx)
-                                        +sum(-G[idx,jdx]*vm_fr[fc]*vm_to[td]*cos(va_fr[fc]-va_to[td])
-                                             -B[idx,jdx]*vm_fr[fc]*vm_to[td]*sin(va_fr[fc]-va_to[td])
-                                             for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)))
-                                    )
+        JuMP.@NLconstraint(pm.model, p_fr[fc] == (G[idx,idx]+G_fr[idx,idx])*vm_fr[fc]^2
+            +sum( (G[idx,jdx]+G_fr[idx,jdx]) * vm_fr[fc]*vm_fr[fd]*cos(va_fr[fc]-va_fr[fd])
+                 +(B[idx,jdx]+B_fr[idx,jdx]) * vm_fr[fc]*vm_fr[fd]*sin(va_fr[fc]-va_fr[fd])
+                for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)) if idx != jdx)
+            +sum( -G[idx,jdx]*vm_fr[fc]*vm_to[td]*cos(va_fr[fc]-va_to[td])
+                  -B[idx,jdx]*vm_fr[fc]*vm_to[td]*sin(va_fr[fc]-va_to[td])
+                for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)))
+            )
+
         JuMP.@NLconstraint(pm.model, q_fr[fc] == -(B[idx,idx]+B_fr[idx,idx])*vm_fr[fc]^2
-                                        -sum( (B[idx,jdx]+B_fr[idx,jdx])*vm_fr[fc]*vm_fr[fd]*cos(va_fr[fc]-va_fr[fd])
-                                             -(G[idx,jdx]+G_fr[idx,jdx])*vm_fr[fc]*vm_fr[fd]*sin(va_fr[fc]-va_fr[fd])
-                                             for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)) if idx != jdx)
-                                        -sum(-B[idx,jdx]*vm_fr[fc]*vm_to[td]*cos(va_fr[fc]-va_to[td])
-                                             +G[idx,jdx]*vm_fr[fc]*vm_to[td]*sin(va_fr[fc]-va_to[td])
-                                             for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)))
-                                    )
+            -sum( (B[idx,jdx]+B_fr[idx,jdx])*vm_fr[fc]*vm_fr[fd]*cos(va_fr[fc]-va_fr[fd])
+                 -(G[idx,jdx]+G_fr[idx,jdx])*vm_fr[fc]*vm_fr[fd]*sin(va_fr[fc]-va_fr[fd])
+                for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)) if idx != jdx)
+            -sum(-B[idx,jdx]*vm_fr[fc]*vm_to[td]*cos(va_fr[fc]-va_to[td])
+                 +G[idx,jdx]*vm_fr[fc]*vm_to[td]*sin(va_fr[fc]-va_to[td])
+                for (jdx, (fd,td)) in enumerate(zip(f_connections,t_connections)))
+        )
     end
 end
 
@@ -455,36 +446,35 @@ p[t_idx] ==  (g+g_to)*v[t_bus]^2 + (-g*tr-b*ti)/tm*(v[t_bus]*v[f_bus]*cos(t[t_bu
 q[t_idx] == -(b+b_to)*v[t_bus]^2 - (-b*tr+g*ti)/tm*(v[t_bus]*v[f_bus]*cos(t[f_bus]-t[t_bus])) + (-g*tr-b*ti)/tm*(v[t_bus]*v[f_bus]*sin(t[t_bus]-t[f_bus]))
 ```
 """
-function constraint_mc_ohms_yt_to(pm::_PM.AbstractACPModel, n::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, G::Matrix{<:Real}, B::Matrix{<:Real}, G_to::Matrix{<:Real}, B_to::Matrix{<:Real})
-    constraint_mc_ohms_yt_from(pm, n, t_bus, f_bus, t_idx, f_idx, G, B, G_to, B_to)
+function constraint_mc_ohms_yt_to(pm::_PM.AbstractACPModel, nw::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, f_connections::Vector{Int}, t_connections::Vector{Int}, G::Matrix{<:Real}, B::Matrix{<:Real}, G_to::Matrix{<:Real}, B_to::Matrix{<:Real})
+    constraint_mc_ohms_yt_from(pm, nw, t_bus, f_bus, t_idx, f_idx, t_connections, f_connections, G, B, G_to, B_to)
 end
 
 
 ""
-function constraint_mc_transformer_power_yy(pm::_PM.AbstractACPModel, nw::Int, trans_id::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, f_cnd, t_cnd, pol, tm_set, tm_fixed, tm_scale)
+function constraint_mc_transformer_power_yy(pm::_PM.AbstractACPModel, nw::Int, trans_id::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, f_connections::Vector{Int}, t_connections::Vector{Int}, pol::Int, tm_set::Vector{<:Real}, tm_fixed::Vector{Bool}, tm_scale::Real)
     vm_fr = var(pm, nw, :vm, f_bus)
     vm_to = var(pm, nw, :vm, t_bus)
     va_fr = var(pm, nw, :va, f_bus)
     va_to = var(pm, nw, :va, t_bus)
 
     # construct tm as a parameter or scaled variable depending on whether it is fixed or not
-    tm = [tm_fixed[idx] ? tm_set[idx] : var(pm, nw, :tap, trans_id)[fc] for (idx,(fc,tc)) in enumerate(zip(f_cnd,t_cnd))]
+    tm = [tm_fixed[idx] ? tm_set[idx] : var(pm, nw, :tap, trans_id)[idx] for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))]
 
-
-    for (idx,(fc,tc)) in enumerate(zip(f_cnd,t_cnd))
+    for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))
         if tm_fixed[idx]
             JuMP.@constraint(pm.model, vm_fr[fc] == tm_scale*tm[idx]*vm_to[tc])
         else
             JuMP.@NLconstraint(pm.model, vm_fr[fc] == tm_scale*tm[idx]*vm_to[tc])
         end
-        pol_angle = pol==1 ? 0 : pi
+        pol_angle = pol == 1 ? 0 : pi
         JuMP.@constraint(pm.model, va_fr[fc] == va_to[tc] + pol_angle)
     end
 
-    p_fr = [var(pm, nw, :pt, f_idx)[c] for c in f_cnd]
-    p_to = [var(pm, nw, :pt, t_idx)[c] for c in t_cnd]
-    q_fr = [var(pm, nw, :qt, f_idx)[c] for c in f_cnd]
-    q_to = [var(pm, nw, :qt, t_idx)[c] for c in t_cnd]
+    p_fr = [var(pm, nw, :pt, f_idx)[c] for c in f_connections]
+    p_to = [var(pm, nw, :pt, t_idx)[c] for c in t_connections]
+    q_fr = [var(pm, nw, :qt, f_idx)[c] for c in f_connections]
+    q_to = [var(pm, nw, :qt, t_idx)[c] for c in t_connections]
 
     JuMP.@constraint(pm.model, p_fr + p_to .== 0)
     JuMP.@constraint(pm.model, q_fr + q_to .== 0)
@@ -492,26 +482,25 @@ end
 
 
 ""
-function constraint_mc_transformer_power_dy(pm::_PM.AbstractACPModel, nw::Int, trans_id::Int, f_bus::Int, t_bus::Int, f_idx, t_idx, f_cnd, t_cnd, pol, tm_set, tm_fixed, tm_scale)
+function constraint_mc_transformer_power_dy(pm::_PM.AbstractACPModel, nw::Int, trans_id::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, f_connections::Vector{Int}, t_connections::Vector{Int}, pol::Int, tm_set::Vector{<:Real}, tm_fixed::Vector{Bool}, tm_scale::Real)
     vm_fr = var(pm, nw, :vm, f_bus)
     vm_to = var(pm, nw, :vm, t_bus)
     va_fr = var(pm, nw, :va, f_bus)
     va_to = var(pm, nw, :va, t_bus)
 
     # construct tm as a parameter or scaled variable depending on whether it is fixed or not
-    tm = [tm_fixed[idx] ? tm_set[idx] : var(pm, nw, :tap, trans_id)[fc] for (idx,(fc,tc)) in enumerate(zip(f_cnd,t_cnd))]
+    tm = [tm_fixed[idx] ? tm_set[idx] : var(pm, nw, :tap, trans_id)[fc] for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))]
 
     nph = length(tm_set)
 
     # introduce auxialiary variable vd = Md*v_fr
-    # nph = length(conductor_ids(pm))
     vd_re = Array{Any,1}(undef, nph)
     vd_im = Array{Any,1}(undef, nph)
-    for (idx, (fc,tc)) in enumerate(zip(f_cnd,t_cnd))
+    for (idx, (fc,tc)) in enumerate(zip(f_connections,t_connections))
         # rotate by 1 to get 'previous' phase
         # e.g., for nph=3: 1->3, 2->1, 3->2
         jdx = (idx-1+nph-1)%nph+1
-        fd = f_cnd[jdx]
+        fd = f_connections[jdx]
         vd_re[idx] = JuMP.@NLexpression(pm.model, vm_fr[fc]*cos(va_fr[fc])-vm_fr[fd]*cos(va_fr[fd]))
         vd_im[idx] = JuMP.@NLexpression(pm.model, vm_fr[fc]*sin(va_fr[fc])-vm_fr[fd]*sin(va_fr[fd]))
         JuMP.@NLconstraint(pm.model, vd_re[idx] == pol*tm_scale*tm[idx]*vm_to[tc]*cos(va_to[tc]))
@@ -529,12 +518,12 @@ function constraint_mc_transformer_power_dy(pm::_PM.AbstractACPModel, nw::Int, t
     #          = (p+jq)/|v|*(cos(va)-j*sin(va))
     # Re(s/v)  = (p*cos(va)+q*sin(va))/|v|
     # -Im(s/v) = -(q*cos(va)-p*sin(va))/|v|
-    for (idx,(fc,tc)) in enumerate(zip(f_cnd,t_cnd))
+    for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))
         # id = conj(s_to/v_to)./tm
         id_re[idx] = JuMP.@NLexpression(pm.model,  (p_to[tc]*cos(va_to[tc])+q_to[tc]*sin(va_to[tc]))/vm_to[tc]/(tm_scale*tm[idx])/pol)
         id_im[idx] = JuMP.@NLexpression(pm.model, -(q_to[tc]*cos(va_to[tc])-p_to[tc]*sin(va_to[tc]))/vm_to[tc]/(tm_scale*tm[idx])/pol)
     end
-    for (idx, (fc,tc)) in enumerate(zip(f_cnd,t_cnd))
+    for (idx, (fc,tc)) in enumerate(zip(f_connections,t_connections))
         # rotate by nph-1 to get 'previous' phase
         # e.g., for nph=3: 1->3, 2->1, 3->2
         jdx = (idx-1+nph-1)%nph+1
@@ -566,8 +555,8 @@ function constraint_mc_bus_voltage_magnitude_vuf(pm::_PM.AbstractACPModel, nw::I
         var(pm, pm.cnw)[:vmpossqr] = Dict{Int, Any}()
         var(pm, pm.cnw)[:vmnegsqr] = Dict{Int, Any}()
     end
-    (vm_a, vm_b, vm_c) = [var(pm, nw, i, :vm, bus_id) for i in 1:3]
-    (va_a, va_b, va_c) = [var(pm, nw, i, :va, bus_id) for i in 1:3]
+    (vm_a, vm_b, vm_c) = [var(pm, nw, :vm, bus_id)[i] for i in 1:3]
+    (va_a, va_b, va_c) = [var(pm, nw, :va, bus_id)[i] for i in 1:3]
     a = exp(im*2*pi/3)
     # real and imag functions cannot be used in NLexpressions, so precalculate
     are = real(a)
@@ -613,8 +602,8 @@ function constraint_mc_bus_voltage_magnitude_negative_sequence(pm::_PM.AbstractA
         var(pm, pm.cnw)[:vmpossqr] = Dict{Int, Any}()
         var(pm, pm.cnw)[:vmnegsqr] = Dict{Int, Any}()
     end
-    (vm_a, vm_b, vm_c) = [var(pm, nw, i, :vm, bus_id) for i in 1:3]
-    (va_a, va_b, va_c) = [var(pm, nw, i, :va, bus_id) for i in 1:3]
+    (vm_a, vm_b, vm_c) = [var(pm, nw, :vm, bus_id)[i] for i in 1:3]
+    (va_a, va_b, va_c) = [var(pm, nw, :va, bus_id)[i] for i in 1:3]
     a = exp(im*2*pi/3)
     # real and imag functions cannot be used in NLexpressions, so precalculate
     are = real(a)
@@ -648,8 +637,8 @@ function constraint_mc_bus_voltage_magnitude_positive_sequence(pm::_PM.AbstractA
         var(pm, pm.cnw)[:vmpossqr] = Dict{Int, Any}()
         var(pm, pm.cnw)[:vmnegsqr] = Dict{Int, Any}()
     end
-    (vm_a, vm_b, vm_c) = [var(pm, nw, i, :vm, bus_id) for i in 1:3]
-    (va_a, va_b, va_c) = [var(pm, nw, i, :va, bus_id) for i in 1:3]
+    (vm_a, vm_b, vm_c) = [var(pm, nw, :vm, bus_id)[i] for i in 1:3]
+    (va_a, va_b, va_c) = [var(pm, nw, :va, bus_id)[i] for i in 1:3]
     a = exp(im*2*pi/3)
     # real and imag functions cannot be used in NLexpressions, so precalculate
     are = real(a)
@@ -683,8 +672,8 @@ function constraint_mc_bus_voltage_magnitude_zero_sequence(pm::_PM.AbstractACPMo
         var(pm, pm.cnw)[:vmpossqr] = Dict{Int, Any}()
         var(pm, pm.cnw)[:vmnegsqr] = Dict{Int, Any}()
     end
-    (vm_a, vm_b, vm_c) = [var(pm, nw, i, :vm, bus_id) for i in 1:3]
-    (va_a, va_b, va_c) = [var(pm, nw, i, :va, bus_id) for i in 1:3]
+    (vm_a, vm_b, vm_c) = [var(pm, nw, :vm, bus_id)[i] for i in 1:3]
+    (va_a, va_b, va_c) = [var(pm, nw, :va, bus_id)[i] for i in 1:3]
     # real and imaginary components of U+
     vrezero = JuMP.@NLexpression(pm.model,
         (vm_a*cos(va_a) + vm_b*cos(va_b) + vm_c*cos(va_c))/3
@@ -751,8 +740,8 @@ end
 ""
 function constraint_mc_bus_voltage_magnitude_ll(pm::_PM.AbstractACPModel, nw::Int, bus_id::Int, vm_ll_min::Vector, vm_ll_max::Vector)
     # 3 conductors asserted in template already
-    vm_ln = [var(pm, nw, i, :vm, bus_id) for i in 1:3]
-    va_ln = [var(pm, nw, i, :va, bus_id) for i in 1:3]
+    vm_ln = [var(pm, nw, :vm, bus_id)[i] for i in 1:3]
+    va_ln = [var(pm, nw, :va, bus_id)[i] for i in 1:3]
     vr_ll = JuMP.@NLexpression(pm.model, [i in 1:3],
         vm_ln[i]*cos(va_ln[i]) - vm_ln[i%3+1]*cos(va_ln[i%3+1])
     )
@@ -781,21 +770,20 @@ end
 
 
 "`vm[i] == vmref`"
-function constraint_mc_voltage_magnitude_only(pm::_PM.AbstractACPModel, nw::Int, i::Int, vmref::Vector{<:Real})
+function constraint_mc_voltage_magnitude_only(pm::_PM.AbstractACPModel, nw::Int, i::Int, vm_ref::Vector{<:Real})
     bus = ref(pm, nw, :bus, i)
     terminals = bus["terminals"]
     grounded = bus["grounded"]
     vm = var(pm, nw, :vm, i)
 
     for (idx,t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
-        JuMP.@constraint(pm.model, vm[t] == vmref[idx])
+        JuMP.@constraint(pm.model, vm[t] == vm_ref[idx])
     end
 end
 
 
 ""
-function constraint_mc_storage_current_limit(pm::_PM.AbstractACPModel, nw::Int, i::Int, bus_id::Int, rating::Vector{<:Real})
-    connections = ref(pm, nw, :storage, i)["connections"]
+function constraint_mc_storage_current_limit(pm::_PM.AbstractACPModel, nw::Int, i::Int, bus_id::Int, connections::Vector{Int}, rating::Vector{<:Real})
     vm = [var(pm, nw, :vm, bus_id)[c] for c in connections]
     ps = [var(pm, nw, :ps, i)[c] for c in connections]
     qs = [var(pm, nw, :qs, i)[c] for c in connections]
@@ -805,15 +793,9 @@ end
 
 
 ""
-function constraint_mc_load_power_wye(pm::_PM.AbstractACPModel, nw::Int, id::Int, bus_id::Int, a::Vector{<:Real}, alpha::Vector{<:Real}, b::Vector{<:Real}, beta::Vector{<:Real}; report::Bool=true)
+function constraint_mc_load_power_wye(pm::_PM.AbstractACPModel, nw::Int, id::Int, bus_id::Int, connections::Vector{Int}, a::Vector{<:Real}, alpha::Vector{<:Real}, b::Vector{<:Real}, beta::Vector{<:Real}; report::Bool=true)
     vm = var(pm, nw, :vm, bus_id)
     va = var(pm, nw, :va, bus_id)
-
-    connections = ref(pm, nw, :load, id)["connections"]
-
-    bus = ref(pm, nw, :bus, bus_id)
-    terminals = bus["terminals"]
-    grounded = bus["grounded"]
 
     # if constant power load
     if all(alpha.==0) && all(beta.==0)
@@ -862,13 +844,11 @@ end
 
 
 ""
-function constraint_mc_load_power_delta(pm::_PM.AbstractACPModel, nw::Int, id::Int, bus_id::Int, a::Vector{<:Real}, alpha::Vector{<:Real}, b::Vector{<:Real}, beta::Vector{<:Real}; report::Bool=true)
+function constraint_mc_load_power_delta(pm::_PM.AbstractACPModel, nw::Int, id::Int, bus_id::Int, connections::Vector{Int}, a::Vector{<:Real}, alpha::Vector{<:Real}, b::Vector{<:Real}, beta::Vector{<:Real}; report::Bool=true)
     vm = var(pm, nw, :vm, bus_id)
     va = var(pm, nw, :va, bus_id)
 
-    load = ref(pm, nw, :load, id)
-    connections = load["connections"]
-    nph = length(load["pd"])
+    nph = length(a)
     prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in enumerate(connections))
     next = Dict(c=>connections[idx%nph+1] for (idx,c) in enumerate(connections))
 
@@ -929,13 +909,12 @@ end
 
 
 ""
-function constraint_mc_gen_power_delta(pm::_PM.AbstractACPModel, nw::Int, id::Int, bus_id::Int, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real}; report::Bool=true, bounded::Bool=true)
+function constraint_mc_gen_power_delta(pm::_PM.AbstractACPModel, nw::Int, id::Int, bus_id::Int, connections::Vector{Int}, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real}; report::Bool=true, bounded::Bool=true)
     vm = var(pm, nw, :vm, bus_id)
     va = var(pm, nw, :va, bus_id)
     pg = var(pm, nw, :pg, id)
     qg = var(pm, nw, :qg, id)
 
-    connections = ref(pm, nw, :gen, id)["connections"]
     nph = length(connections)
     prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in enumerate(connections))
     next = Dict(c=>connections[idx%nph+1] for (idx,c) in enumerate(connections))

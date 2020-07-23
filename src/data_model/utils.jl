@@ -144,7 +144,7 @@ end
 
 
 "loss model builder for transformer decomposition"
-function _build_loss_model!(data_math::Dict{String,<:Any}, transformer_name::Any, to_map::Vector{String}, r_s::Vector{Float64}, zsc::Dict{Tuple{Int,Int},Complex{Float64}}, ysh::Complex{Float64}; nphases::Int=3)::Vector{Int}
+function _build_loss_model!(data_math::Dict{String,<:Any}, transformer_name::Any, to_map::Vector{String}, r_s::Vector{Float64}, zsc::Dict{Tuple{Int,Int},Complex{Float64}}, ysh::Complex{Float64}; connections::Vector{<:Vector}=[collect(1:3), collect(1:3)])::Vector{Int}
     # precompute the minimal set of buses and lines
     N = length(r_s)
     tr_t_bus = collect(1:N)
@@ -213,6 +213,9 @@ function _build_loss_model!(data_math::Dict{String,<:Any}, transformer_name::Any
         end
     end
 
+    t_connections = connections[2]
+    nphases = length(t_connections)
+
     bus_ids = Dict{Int,Int}()
     for bus in buses
         bus_obj = Dict{String,Any}(
@@ -220,7 +223,7 @@ function _build_loss_model!(data_math::Dict{String,<:Any}, transformer_name::Any
             "bus_i" => length(data_math["bus"])+1,
             "vmin" => fill(0.0, nphases),
             "vmax" => fill(Inf, nphases),
-            "terminals" => collect(1:nphases),
+            "terminals" => t_connections,
             "grounded" => fill(false, nphases),
             "base_kv" => 1.0,
             "bus_type" => 1,
@@ -230,14 +233,14 @@ function _build_loss_model!(data_math::Dict{String,<:Any}, transformer_name::Any
 
         if !get(data_math, "is_kron_reduced", false)
             if bus in tr_t_bus
-                bus_obj["terminals"] = collect(1:nphases+1)
+                bus_obj["terminals"] = t_connections
                 bus_obj["vmin"] = fill(0.0, nphases+1)
                 bus_obj["vmax"] = fill(Inf, nphases+1)
                 bus_obj["grounded"] = [fill(false, nphases)..., true]
                 bus_obj["rg"] = [0.0]
                 bus_obj["xg"] = [0.0]
             else
-                bus_obj["terminals"] = collect(1:nphases)
+                bus_obj["terminals"] = t_connections
                 bus_obj["vmin"] = fill(0.0, nphases)
                 bus_obj["vmax"] = fill(Inf, nphases)
             end
@@ -273,8 +276,8 @@ function _build_loss_model!(data_math::Dict{String,<:Any}, transformer_name::Any
             "br_status"=>1,
             "f_bus"=>bus_ids[i],
             "t_bus"=>bus_ids[j],
-            "f_connections"=>collect(1:nphases),
-            "t_connections"=>collect(1:nphases),
+            "f_connections"=>t_connections,
+            "t_connections"=>t_connections,
             "br_r" => diagm(0=>fill(real(z[l]), nphases)),
             "br_x" => diagm(0=>fill(imag(z[l]), nphases)),
             "g_fr" => diagm(0=>fill(g_fr, nphases)),
@@ -763,5 +766,38 @@ function _pad_connections!(eng_obj::Dict{String,<:Any}, connection_key::String, 
         if !(cond in eng_obj[connection_key][wdg])
             push!(eng_obj[connection_key][wdg], cond)
         end
+    end
+end
+
+
+""
+function _map_conductor_ids!(data_math::Dict{String,<:Any})
+    if all(typeof(c) <: Int for c in data_math["conductor_ids"])
+        cnd_map = Dict{Any,Int}(c => c for c in data_math["conductor_ids"])
+    else
+        cnd_map = Dict{Any,Int}(c => idx for (idx, c) in enumerate(data_math["conductor_ids"]))
+    end
+
+    data_math["conductor_ids"] = Vector{Int}([cnd_map[c] for c in data_math["conductor_ids"]])
+
+    for type in ["branch", "switch", "transformer"]
+        if haskey(data_math, type)
+            for (_,obj) in data_math[type]
+                obj["f_connections"] = Vector{Int}([cnd_map[c] for c in obj["f_connections"]])
+                obj["t_connections"] = Vector{Int}([cnd_map[c] for c in obj["f_connections"]])
+            end
+        end
+    end
+
+    for type in ["load", "shunt", "gen", "storage"]
+        if haskey(data_math, type)
+            for (_,obj) in data_math[type]
+                obj["connections"] = Vector{Int}([cnd_map[c] for c in obj["connections"]])
+            end
+        end
+    end
+
+    for (_,bus) in data_math["bus"]
+        bus["terminals"] = Vector{Int}([cnd_map[t] for t in bus["terminals"]])
     end
 end

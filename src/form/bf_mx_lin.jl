@@ -12,35 +12,34 @@ end
 
 
 ""
-function variable_mc_bus_voltage(pm::LPUBFDiagModel; n_cond::Int=3, nw::Int=pm.cnw, bounded::Bool=true)
+function variable_mc_bus_voltage(pm::LPUBFDiagModel; nw::Int=pm.cnw, bounded::Bool=true)
     variable_mc_bus_voltage_magnitude_sqr(pm, nw=nw)
 end
 
 
 ""
-function variable_mc_branch_power(pm::LPUBFDiagModel; n_cond::Int=3, nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    @assert(n_cond == 3)
+function variable_mc_branch_power(pm::LPUBFDiagModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     variable_mc_branch_power_real(pm, nw=nw, bounded=bounded)
     variable_mc_branch_power_imaginary(pm, nw=nw, bounded=bounded)
 end
 
 
 "Defines branch flow model power flow equations"
-function constraint_mc_power_losses(pm::LPUBFDiagModel, n::Int, i, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, g_sh_to, b_sh_fr, b_sh_to, tm)
-    p_fr = var(pm, n, :p)[f_idx]
-    q_fr = var(pm, n, :q)[f_idx]
+function constraint_mc_power_losses(pm::LPUBFDiagModel, nw::Int, i::Int, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, g_sh_to, b_sh_fr, b_sh_to, tm)
+    p_fr = var(pm, nw, :p)[f_idx]
+    q_fr = var(pm, nw, :q)[f_idx]
 
-    p_to = var(pm, n, :p)[t_idx]
-    q_to = var(pm, n, :q)[t_idx]
+    p_to = var(pm, nw, :p)[t_idx]
+    q_to = var(pm, nw, :q)[t_idx]
 
-    w_fr = var(pm, n, :w)[f_bus]
-    w_to = var(pm, n, :w)[t_bus]
+    w_fr = var(pm, nw, :w)[f_bus]
+    w_to = var(pm, nw, :w)[t_bus]
 
 
-    fb = ref(pm, n, :bus, f_bus)
-    tb = ref(pm, n, :bus, t_bus)
+    fb = ref(pm, nw, :bus, f_bus)
+    tb = ref(pm, nw, :bus, t_bus)
 
-    branch = ref(pm, n, :branch, i)
+    branch = ref(pm, nw, :branch, i)
     f_connections = branch["f_connections"]
     t_connections = branch["t_connections"]
 
@@ -52,7 +51,7 @@ end
 
 
 "Defines voltage drop over a branch, linking from and to side voltage"
-function constraint_mc_model_voltage_magnitude_difference(pm::LPUBFDiagModel, n::Int, i::Int, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, b_sh_fr)
+function constraint_mc_model_voltage_magnitude_difference(pm::LPUBFDiagModel, n::Int, i::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, r::Matrix{<:Real}, x::Matrix{<:Real}, g_sh_fr::Matrix{<:Real}, b_sh_fr::Matrix{<:Real})
     f_connections = ref(pm, n, :branch, i)["f_connections"]
     t_connections = ref(pm, n, :branch, i)["t_connections"]
 
@@ -80,20 +79,16 @@ end
 
 
 "balanced three-phase phasor"
-function constraint_mc_theta_ref(pm::LPUBFDiagModel, nw::Int, i::Int, va_ref)
+function constraint_mc_theta_ref(pm::LPUBFDiagModel, nw::Int, i::Int, va_ref::Vector{<:Real})
     w = [var(pm, nw, :w, i)[t] for t in ref(pm, nw, :bus, i)["terminals"]]
 
-    JuMP.@constraint(pm.model, w[2:end]   .== w[1])
+    JuMP.@constraint(pm.model, w[2:end] .== w[1])
 end
 
 
 ""
-function constraint_mc_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, bus_arcs, bus_arcs_sw, bus_arcs_trans, bus_gens, bus_storage, bus_loads, bus_shunts)
+function constraint_mc_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
     w = var(pm, nw, :w, i)
-    bus = ref(pm, nw, :bus, i)
-    terminals = bus["terminals"]
-    grounded = bus["grounded"]
-
     p   = get(var(pm, nw), :p,   Dict()); _PM._check_var_keys(p,   bus_arcs, "active power", "branch")
     q   = get(var(pm, nw), :q,   Dict()); _PM._check_var_keys(q,   bus_arcs, "reactive power", "branch")
     psw = get(var(pm, nw), :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
@@ -107,39 +102,39 @@ function constraint_mc_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, bus_ar
     ps  = get(var(pm, nw), :ps,  Dict()); _PM._check_var_keys(ps,  bus_storage, "active power", "storage")
     qs  = get(var(pm, nw), :qs,  Dict()); _PM._check_var_keys(qs,  bus_storage, "reactive power", "storage")
 
-    shunt = ref(pm, nw, :shunt)
-
     cstr_p = []
     cstr_q = []
 
-    for (idx,t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
+
+    for (idx,t) in ungrounded_terminals
         cp = JuMP.@constraint(pm.model,
-              sum(p[a][t] for (a, conns) in bus_arcs if t in conns)
-            + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
-            + sum(pt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
+              sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
             ==
               sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
             - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
             - sum(pd[d][t] for (d, conns) in bus_loads if t in conns)
-            - sum(shunt[sh]["gs"][idx]*w[t] for (sh, conns) in bus_shunts if t in conns)
+            - sum(ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)]*w[t] for (sh, conns) in bus_shunts if t in conns)
         )
         push!(cstr_p, cp)
 
         cq = JuMP.@constraint(pm.model,
-              sum(q[a][t] for (a, conns) in bus_arcs if t in conns)
-            + sum(qsw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
-            + sum(qt[a_trans][t] for (a_trans, conns) in bus_arcs_trans if t in conns)
+              sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
             ==
               sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
             - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
             - sum(qd[d][t] for (d, conns) in bus_loads if t in conns)
-            + sum(shunt[sh]["bs"][idx]*w[t] for (sh, conns) in bus_shunts if t in conns)
+            + sum(ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)]*w[t] for (sh, conns) in bus_shunts if t in conns)
         )
         push!(cstr_q, cq)
    end
 
-    con(pm, nw, :lam_kcl_r)[i] = isa(cstr_p, Array) ? cstr_p : [cstr_p]
-    con(pm, nw, :lam_kcl_i)[i] = isa(cstr_q, Array) ? cstr_q : [cstr_q]
+    con(pm, nw, :lam_kcl_r)[i] = cstr_p
+    con(pm, nw, :lam_kcl_i)[i] = cstr_q
 
     if _IM.report_duals(pm)
         sol(pm, nw, :bus, i)[:lam_kcl_r] = cstr_p
