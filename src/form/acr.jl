@@ -586,7 +586,8 @@ function constraint_mc_load_power_delta(pm::_PM.AbstractACRModel, nw::Int, id::I
     vr = var(pm, nw, :vr, bus_id)
     vi = var(pm, nw, :vi, bus_id)
 
-    nph = length(connections)
+    nph = length(a)
+    connection = connections[1:nph]
 
     prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in enumerate(connections))
     next = Dict(c=>connections[idx%nph+1] for (idx,c) in enumerate(connections))
@@ -657,7 +658,9 @@ function constraint_mc_gen_power_delta(pm::_PM.AbstractACRModel, nw::Int, id::In
     pg = var(pm, nw, :pg, id)
     qg = var(pm, nw, :qg, id)
 
-    nph = length(connections)
+    nph = length(pmin)
+    connections = connections[1:nph]
+
     prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in connections)
     next = Dict(c=>connections[idx%nph+1] for (idx,c) in connections)
 
@@ -742,6 +745,9 @@ function constraint_mc_transformer_power_dy(pm::_PM.AbstractACRModel, nw::Int, t
     @assert length(f_connections) == length(t_connections)
 
     nph = length(tm_set)
+    f_connections = f_connections[1:nph]
+    t_connections = t_connections[1:nph]
+
     M = _get_delta_transformation_matrix(nph)
 
     # construct tm as a parameter or scaled variable depending on whether it is fixed or not
