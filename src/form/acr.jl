@@ -444,6 +444,7 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACRModel, nw::Int, i::
     qt   = get(var(pm, nw), :qt,     Dict()); _PM._check_var_keys(qt,  bus_arcs_trans, "reactive power", "transformer")
     pd   = get(var(pm, nw), :pd_bus, Dict()); _PM._check_var_keys(pd,  bus_loads,      "active power",   "load")
     qd   = get(var(pm, nw), :qd_bus, Dict()); _PM._check_var_keys(pd,  bus_loads,      "reactive power", "load")
+
     z_demand = var(pm, nw, :z_demand)
     z_shunt  = var(pm, nw, :z_shunt)
     z_gen = var(pm, nw, :z_gen)
@@ -454,11 +455,10 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACRModel, nw::Int, i::
     cstr_p = []
     cstr_q = []
 
-    # pd/qd can be NLexpressions, so cannot be vectorized
-    for (idx, t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
-        crsh = sum(Gt[idx,jdx]*vr[u]-Bt[idx,jdx]*vi[u] for (jdx,u) in enumerate(terminals) if !grounded[jdx])
-        cish = sum(Gt[idx,jdx]*vi[u]+Bt[idx,jdx]*vr[u] for (jdx,u) in enumerate(terminals) if !grounded[jdx])
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
+    # pd/qd can be NLexpressions, so cannot be vectorized
+    for (idx, t) in ungrounded_terminals
         cp = JuMP.@NLconstraint(pm.model,
               sum(p[arc][t] for (arc, conns) in bus_arcs if t in conns)
             + sum(psw[arc][t] for (arc, conns) in bus_arcs_sw if t in conns)
@@ -467,7 +467,8 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACRModel, nw::Int, i::
               sum(pg[gen][t]*z_gen[gen] for (gen, conns) in bus_gens if t in conns)
             - sum(ps[strg][t]*z_storage[strg] for (strg, conns) in bus_storage if t in conns)
             - sum(pd[load][t]*z_demand[load] for (load, conns) in bus_loads if t in conns)
-            + (-vr[t] * crsh - vi[t] * cish)
+            + (-vr[t] * sum(Gt[idx,jdx]*vr[u]-Bt[idx,jdx]*vi[u] for (jdx,u) in ungrounded_terminals)
+               -vi[t] * sum(Gt[idx,jdx]*vi[u]+Bt[idx,jdx]*vr[u] for (jdx,u) in ungrounded_terminals))
         )
         push!(cstr_p, cp)
 
@@ -479,7 +480,8 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACRModel, nw::Int, i::
               sum(qg[gen][t]*z_gen[gen] for (gen, conns) in bus_gens if t in conns)
             - sum(qs[strg][t]*z_storage[strg] for (strg, conns) in bus_storage if t in conns)
             - sum(qd[load][t]*z_demand[load] for (load, conns) in bus_loads if t in conns)
-            + ( vr[t] * cish - vi[t] * crsh)
+            + ( vr[t] * sum(Gt[idx,jdx]*vi[u]+Bt[idx,jdx]*vr[u] for (jdx,u) in ungrounded_terminals)
+               -vi[t] * sum(Gt[idx,jdx]*vr[u]-Bt[idx,jdx]*vi[u] for (jdx,u) in ungrounded_terminals))
         )
         push!(cstr_q, cq)
     end
