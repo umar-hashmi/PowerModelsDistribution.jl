@@ -189,6 +189,8 @@ end
 
 "pad matrices to max number of conductors"
 function apply_phase_projection!(data_eng::Dict{String,<:Any})
+    @assert get(data_eng, "is_kron_reduced", false)
+
     all_conductors = _get_complete_conductor_set(data_eng)
 
     if haskey(data_eng, "bus")
@@ -321,6 +323,64 @@ function apply_phase_projection!(data_eng::Dict{String,<:Any})
             _pad_properties!(eng_obj, ["pg", "qg", "pg_lb", "pg_ub", "qg_lb", "qg_ub", "vm", "va"], eng_obj["connections"], all_conductors)
 
             _pad_connections!(eng_obj, "connections", all_conductors)
+        end
+    end
+
+    data_eng["is_projected"] = true
+end
+
+
+"phase projection for components where unprojected states are not yet supported"
+function apply_phase_projection_delta!(data_eng::Dict{String,<:Any})
+    @assert get(data_eng, "is_kron_reduced", false)
+
+    all_conductors = _get_complete_conductor_set(data_eng)
+
+    if haskey(data_eng, "transformer")
+        for (_,eng_obj) in data_eng["transformer"]
+            _apply_xfmrcode!(eng_obj, data_eng)
+
+            if haskey(eng_obj, "f_connections")
+                _pad_properties!(eng_obj, ["tm_lb", "tm_ub", "tm_set"], eng_obj["f_connections"], all_conductors; pad_value=1.0)
+                _pad_properties!(eng_obj, ["tm_fix"], eng_obj["f_connections"], all_conductors; pad_value=false)
+
+                _pad_connections!(eng_obj, "f_connections", all_conductors)
+                _pad_connections!(eng_obj, "t_connections", all_conductors)
+            else
+                for (w, connections) in enumerate(eng_obj["connections"])
+                    _pad_properties!(eng_obj, ["tm_lb", "tm_ub", "tm_set"], w, connections, all_conductors; pad_value=1.0)
+                    _pad_properties!(eng_obj, ["tm_fix"], w, connections, all_conductors; pad_value=false)
+
+                    _pad_connections!(eng_obj, "connections", w, all_conductors)
+                end
+            end
+        end
+    end
+
+    if haskey(data_eng, "load")
+        for (_,eng_obj) in data_eng["load"]
+            if eng_obj["configuration"] == DELTA
+                _pad_properties_delta!(eng_obj, ["pd_nom", "qd_nom"], eng_obj["connections"], all_conductors)
+                _pad_connections!(eng_obj, "connections", all_conductors)
+            end
+        end
+    end
+
+    if haskey(data_eng, "generator")
+        for (_,eng_obj) in data_eng["generator"]
+            if eng_obj["configuration"]==DELTA
+                _pad_properties_delta!(eng_obj, ["pg", "qg", "vg", "pg_lb", "pg_ub", "qg_lb", "qg_ub"], eng_obj["connections"], all_conductors)
+                _pad_connections!(eng_obj, "connections", all_conductors)
+            end
+        end
+    end
+
+    if haskey(data_eng, "solar")
+        for (_,eng_obj) in data_eng["solar"]
+            if eng_obj["configuration"]==DELTA
+                _pad_properties_delta!(eng_obj, ["pg", "qg", "vg", "pg_lb", "pg_ub", "qg_lb", "qg_ub"], eng_obj["connections"], all_conductors)
+                _pad_connections!(eng_obj, "connections", all_conductors)
+            end
         end
     end
 

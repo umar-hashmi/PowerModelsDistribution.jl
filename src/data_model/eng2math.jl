@@ -73,6 +73,10 @@ function _map_eng2math(data_eng::Dict{String,<:Any}; kron_reduced::Bool=true)
         apply_kron_reduction!(_data_eng)
     end
 
+    if !get(data_eng, "is_projected", false)
+        apply_phase_projection_delta!(_data_eng)
+    end
+
     data_math = Dict{String,Any}(
         "name" => get(_data_eng, "name", ""),
         "per_unit" => get(_data_eng, "per_unit", false),

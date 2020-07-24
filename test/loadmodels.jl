@@ -7,8 +7,8 @@
         # voltage magnitude at load bus
         @test isapprox(vm(sol, "loadbus"), [0.999993, 0.999992, 0.999993], atol=1E-5)
         # single-phase delta loads
-        @test isapprox(pd(sol, "d1ph23"), [0.2866, 0.1134], atol=1E-4)
-        @test isapprox(qd(sol, "d1ph23"), [0.0345, 0.2655], atol=1E-4)
+        @test isapprox(pd(sol, "d1ph23"), [0.0, 0.2866, 0.1134], atol=1E-4)
+        @test isapprox(qd(sol, "d1ph23"), [0.0, 0.0345, 0.2655], atol=1E-4)
         # single-phase wye loads
         @test isapprox(pd(sol, "y1ph2"), [0.4000], atol=1E-4)
         @test isapprox(qd(sol, "y1ph2"), [0.3000], atol=1E-4)

@@ -232,8 +232,8 @@
             @test isapprox(sum(sol["solution"]["voltage_source"]["source"]["pg"] * sol["solution"]["settings"]["sbase"]), 0.01838728; atol=1e-3)
             @test isapprox(sum(sol["solution"]["voltage_source"]["source"]["qg"] * sol["solution"]["settings"]["sbase"]), 0.00756634; atol=1e-3)
 
-            @test all(sol["solution"]["solar"]["pv1"]["pg"][2:3] .== 0.0)
-            @test all(sol["solution"]["solar"]["pv1"]["qg"][2:3] .== 0.0)
+            @test all(sol["solution"]["solar"]["pv1"]["pg"] .== 0.0)
+            @test all(sol["solution"]["solar"]["pv1"]["qg"] .== 0.0)
         end
 
         @testset "3-bus balanced capacitor acp opf" begin
