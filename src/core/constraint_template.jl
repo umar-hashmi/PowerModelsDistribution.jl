@@ -126,9 +126,9 @@ function constraint_mc_transformer_power(pm::_PM.AbstractPowerModel, i::Int; nw:
     t_bus = transformer["t_bus"]
     f_idx = (i, f_bus, t_bus)
     t_idx = (i, t_bus, f_bus)
-    config = transformer["configuration"]
-    f_cnd = transformer["f_connections"]
-    t_cnd = transformer["t_connections"]
+    configuration = transformer["configuration"]
+    f_connections = transformer["f_connections"]
+    t_connections = transformer["t_connections"]
     tm_set = transformer["tm_set"]
     tm_fixed = fix_taps ? ones(Bool, length(tm_set)) : transformer["tm_fix"]
     tm_scale = calculate_tm_scale(transformer, ref(pm, nw, :bus, f_bus), ref(pm, nw, :bus, t_bus))
@@ -138,11 +138,11 @@ function constraint_mc_transformer_power(pm::_PM.AbstractPowerModel, i::Int; nw:
     #TODO change this once migrated to new data model
     pol = transformer["polarity"]
 
-    if config == WYE
-        constraint_mc_transformer_power_yy(pm, nw, i, f_bus, t_bus, f_idx, t_idx, f_cnd, t_cnd, pol, tm_set, tm_fixed, tm_scale)
-    elseif config == DELTA
-        constraint_mc_transformer_power_dy(pm, nw, i, f_bus, t_bus, f_idx, t_idx, f_cnd, t_cnd, pol, tm_set, tm_fixed, tm_scale)
-    elseif config == "zig-zag"
+    if configuration == WYE
+        constraint_mc_transformer_power_yy(pm, nw, i, f_bus, t_bus, f_idx, t_idx, f_connections, t_connections, pol, tm_set, tm_fixed, tm_scale)
+    elseif configuration == DELTA
+        constraint_mc_transformer_power_dy(pm, nw, i, f_bus, t_bus, f_idx, t_idx, f_connections, t_connections, pol, tm_set, tm_fixed, tm_scale)
+    elseif configuration == "zig-zag"
         Memento.error(_LOGGER, "Zig-zag not yet supported.")
     end
 end
@@ -276,7 +276,6 @@ function constraint_mc_load_power(pm::_PM.AbstractPowerModel, id::Int; nw::Int=p
     configuration = load["configuration"]
 
     a, alpha, b, beta = _load_expmodel_params(load, bus)
-    nph = length(a)
 
     if configuration==WYE
         constraint_mc_load_power_wye(pm, nw, id, load["load_bus"], load["connections"], a, alpha, b, beta; report=report)
