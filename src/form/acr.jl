@@ -248,7 +248,9 @@ function constraint_mc_power_balance_slack(pm::_PM.AbstractACRModel, nw::Int, i:
     cstr_p = []
     cstr_q = []
 
-    for (idx, t) in [(idx, t) for (idx, t) in enumerate(terminals) if !grounded[idx]]
+    ungrounded_terminals = [(idx, t) for (idx, t) in enumerate(terminals) if !grounded[idx]]
+
+    for (idx, t) in ungrounded_terminals
         crsh = sum(Gt[idx,jdx]*vr[s]-Bt[idx,jdx]*vi[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
         cish = sum(Gt[idx,jdx]*vi[s]+Bt[idx,jdx]*vr[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
 
@@ -321,10 +323,9 @@ function constraint_mc_power_balance_simple(pm::_PM.AbstractACRModel, nw::Int, i
     cstr_p = []
     cstr_q = []
 
-    for (idx, t) in [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
-        crsh = sum(Gt[idx,jdx]*vr[s]-Bt[idx,jdx]*vi[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
-        cish = sum(Gt[idx,jdx]*vi[s]+Bt[idx,jdx]*vr[s] for (jdx,s) in enumerate(terminals) if !grounded[jdx])
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
+    for (idx, t) in ungrounded_terminals
         cp = JuMP.@constraint(pm.model,
               sum(p[a][t] for (a, conns) in bus_arcs if t in conns)
             + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
@@ -333,7 +334,8 @@ function constraint_mc_power_balance_simple(pm::_PM.AbstractACRModel, nw::Int, i
               sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
             - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
             - Pd[idx]
-            + sum(-vr[t] * crsh - vi[t] * cish)
+            + sum(-vr[t] * sum(Gt[idx,jdx]*vr[s]-Bt[idx,jdx]*vi[s] for (jdx,s) in ungrounded_terminals)
+                  -vi[t] * sum(Gt[idx,jdx]*vi[s]+Bt[idx,jdx]*vr[s] for (jdx,s) in ungrounded_terminals))
         )
         push!(cstr_p, cp)
 
@@ -345,7 +347,8 @@ function constraint_mc_power_balance_simple(pm::_PM.AbstractACRModel, nw::Int, i
               sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
             - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
             - Qd[idx]
-            + ( vr[t] * cish - vi[t] * crsh)
+            + ( vr[t] * sum(Gt[idx,jdx]*vi[s]+Bt[idx,jdx]*vr[s] for (jdx,s) in ungrounded_terminals)
+               -vi[t] * sum(Gt[idx,jdx]*vr[s]-Bt[idx,jdx]*vi[s] for (jdx,s) in ungrounded_terminals) )
         )
         push!(cstr_q, cq)
     end
@@ -387,9 +390,9 @@ function constraint_mc_power_balance(pm::_PM.AbstractACRModel, nw::Int, i::Int, 
     # pd/qd can be NLexpressions, so cannot be vectorized
     for (idx, t) in ungrounded_terminals
         cp = @smart_constraint(pm.model, [p, q, pg, qg, ps, qs, psw, qsw, pt, qt, pd, qd, vr, vi],
-              sum(p[arc][t] for (arc, conns) in bus_arcs if t in conns)
+              sum(  p[arc][t] for (arc, conns) in bus_arcs if t in conns)
             + sum(psw[arc][t] for (arc, conns) in bus_arcs_sw if t in conns)
-            + sum(pt[arc][t] for (arc, conns) in bus_arcs_trans if t in conns)
+            + sum( pt[arc][t] for (arc, conns) in bus_arcs_trans if t in conns)
             ==
               sum(pg[gen][t] for (gen, conns) in bus_gens if t in conns)
             - sum(ps[strg][t] for (strg, conns) in bus_storage if t in conns)
@@ -401,9 +404,9 @@ function constraint_mc_power_balance(pm::_PM.AbstractACRModel, nw::Int, i::Int, 
         push!(cstr_p, cp)
 
         cq = @smart_constraint(pm.model, [p, q, pg, qg, ps, qs, psw, qsw, pt, qt, pd, qd, vr, vi],
-              sum(q[arc][t] for (arc, conns) in bus_arcs if t in conns)
+              sum(  q[arc][t] for (arc, conns) in bus_arcs if t in conns)
             + sum(qsw[arc][t] for (arc, conns) in bus_arcs_sw if t in conns)
-            + sum(qt[arc][t] for (arc, conns) in bus_arcs_trans if t in conns)
+            + sum( qt[arc][t] for (arc, conns) in bus_arcs_trans if t in conns)
             ==
               sum(qg[gen][t] for (gen, conns) in bus_gens if t in conns)
             - sum(qd[load][t] for (load, conns) in bus_loads if t in conns)
@@ -687,7 +690,7 @@ function constraint_mc_gen_power_delta(pm::_PM.AbstractACRModel, nw::Int, id::In
 
     pg_bus = Vector{JuMP.NonlinearExpression}([])
     qg_bus = Vector{JuMP.NonlinearExpression}([])
-    for (idx,c) in enumerate(connections[1:nph])
+    for (idx,c) in enumerate(connections)
         push!(pg_bus, JuMP.@NLexpression(pm.model,  vr[c]*crg_bus[c]+vi[c]*cig_bus[c]))
         push!(qg_bus, JuMP.@NLexpression(pm.model, -vr[c]*cig_bus[c]+vi[c]*crg_bus[c]))
     end
@@ -706,14 +709,13 @@ end
 
 "This function adds all constraints required to model a two-winding, wye-wye connected transformer."
 function constraint_mc_transformer_power_yy(pm::_PM.AbstractACRModel, nw::Int, trans_id::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, f_connections::Vector{Int}, t_connections::Vector{Int}, pol::Int, tm_set::Vector{<:Real}, tm_fixed::Vector{Bool}, tm_scale::Real)
-    vr_fr = [var(pm, nw, :vr, f_bus)[p] for p in f_connections]
-    vr_to = [var(pm, nw, :vr, t_bus)[p] for p in t_connections]
-    vi_fr = [var(pm, nw, :vi, f_bus)[p] for p in f_connections]
-    vi_to = [var(pm, nw, :vi, t_bus)[p] for p in t_connections]
+    vr_fr = [var(pm, nw, :vr, f_bus)[c] for c in f_connections]
+    vr_to = [var(pm, nw, :vr, t_bus)[c] for c in t_connections]
+    vi_fr = [var(pm, nw, :vi, f_bus)[c] for c in f_connections]
+    vi_to = [var(pm, nw, :vi, t_bus)[c] for c in t_connections]
 
     # construct tm as a parameter or scaled variable depending on whether it is fixed or not
-    tm = [tm_fixed[idx] ? tm_set[idx] : var(pm, nw, :tap, trans_id)[fc] for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))]
-
+    tm = [tm_fixed[idx] ? tm_set[idx] : var(pm, nw, :tap, trans_id)[idx] for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))]
 
     for (idx,(fc,tc)) in enumerate(zip(f_connections,t_connections))
         if tm_fixed[idx]
