@@ -230,14 +230,14 @@ function _build_loss_model!(data_math::Dict{String,<:Any}, transformer_name::Any
 
         if !get(data_math, "is_kron_reduced", false)
             if bus in tr_t_bus
-                bus_obj["terminals"] = collect(1:nphases)
+                bus_obj["terminals"] = collect(1:nphases+1)
                 bus_obj["vmin"] = fill(0.0, nphases+1)
                 bus_obj["vmax"] = fill(Inf, nphases+1)
                 bus_obj["grounded"] = [fill(false, nphases)..., true]
                 bus_obj["rg"] = [0.0]
                 bus_obj["xg"] = [0.0]
             else
-                bus_obj["terminals"] = collect(1:nphases+1)
+                bus_obj["terminals"] = collect(1:nphases)
                 bus_obj["vmin"] = fill(0.0, nphases)
                 bus_obj["vmax"] = fill(Inf, nphases)
             end
@@ -781,7 +781,7 @@ function _map_conductor_ids!(data_math::Dict{String,<:Any})
         if haskey(data_math, type)
             for (_,obj) in data_math[type]
                 obj["f_connections"] = Vector{Int}([cnd_map[c] for c in obj["f_connections"]])
-                obj["t_connections"] = Vector{Int}([cnd_map[c] for c in obj["f_connections"]])
+                obj["t_connections"] = Vector{Int}([cnd_map[c] for c in obj["t_connections"]])
             end
         end
     end
