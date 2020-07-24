@@ -157,7 +157,7 @@ function constraint_mc_network_power_balance(pm::_PM.AbstractAPLossLessModels, n
     pg = var(pm, nw, :pg)
 
     for (idx, t) in enumerate(ref(pm, nw, :bus, i, "terminals"))
-        JuMP.@constraint(pm.model, sum(pg[g][t] for g in comp_gen_ids) == sum(pd[idx] for (i,pd) in values(comp_pd)) + sum(gs[idx]*1.0^2 for (i,gs) in values(comp_gs)))
+        JuMP.@constraint(pm.model, sum(pg[g][t] for (g, conns) in comp_gen_ids if t in conns) == sum(pd[findfirst(isequal(t), conns)] for (i,conns,pd) in values(comp_pd) if t in conns) + sum(gs[findfirst(isequal(t), conns)]*1.0^2 for (i,conns,gs) in values(comp_gs) if t in conns))
         # omit reactive constraint
     end
 end

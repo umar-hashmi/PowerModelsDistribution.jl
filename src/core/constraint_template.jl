@@ -566,9 +566,9 @@ end
 function constraint_mc_network_power_balance(pm::_PM.AbstractPowerModel, i::Int; nw::Int=pm.cnw)
     comp_bus_ids = ref(pm, nw, :components, i)
 
-    comp_gen_ids = Set{Int64}()
+    comp_gen_ids = Set{Tuple{Int,Vector{Int}}}()
     for bus_id in comp_bus_ids, gen_id in PowerModels.ref(pm, nw, :bus_gens, bus_id)
-        push!(comp_gen_ids, gen_id)
+        push!(comp_gen_ids, (gen_id, ref(pm, nw, :gen, gen_id, "connections")))
     end
 
     comp_loads = Set()
@@ -588,14 +588,14 @@ function constraint_mc_network_power_balance(pm::_PM.AbstractPowerModel, i::Int;
         end
     end
 
-    comp_pd = Dict(load["index"] => (load["load_bus"], load["pd"]) for load in comp_loads)
-    comp_qd = Dict(load["index"] => (load["load_bus"], load["qd"]) for load in comp_loads)
+    comp_pd = Dict(load["index"] => (load["load_bus"], load["connections"], load["pd"]) for load in comp_loads)
+    comp_qd = Dict(load["index"] => (load["load_bus"], load["connections"], load["qd"]) for load in comp_loads)
 
-    comp_gs = Dict(shunt["index"] => (shunt["shunt_bus"], shunt["gs"]) for shunt in comp_shunts)
-    comp_bs = Dict(shunt["index"] => (shunt["shunt_bus"], shunt["bs"]) for shunt in comp_shunts)
+    comp_gs = Dict(shunt["index"] => (shunt["shunt_bus"], shunt["connections"], shunt["gs"]) for shunt in comp_shunts)
+    comp_bs = Dict(shunt["index"] => (shunt["shunt_bus"], shunt["connections"], shunt["bs"]) for shunt in comp_shunts)
 
-    comp_branch_g = Dict(branch["index"] => (branch["f_bus"], branch["t_bus"], branch["br_r"], branch["br_x"], fill(1.0, size(branch["br_r"])[1]), branch["g_fr"], branch["g_to"]) for branch in comp_branches)
-    comp_branch_b = Dict(branch["index"] => (branch["f_bus"], branch["t_bus"], branch["br_r"], branch["br_x"], fill(1.0, size(branch["br_r"])[1]), branch["b_fr"], branch["b_to"]) for branch in comp_branches)
+    comp_branch_g = Dict(branch["index"] => (branch["f_bus"], branch["t_bus"], branch["f_connections"], branch["t_connections"], branch["br_r"], branch["br_x"], fill(1.0, size(branch["br_r"])[1]), branch["g_fr"], branch["g_to"]) for branch in comp_branches)
+    comp_branch_b = Dict(branch["index"] => (branch["f_bus"], branch["t_bus"], branch["f_connections"], branch["t_connections"], branch["br_r"], branch["br_x"], fill(1.0, size(branch["br_r"])[1]), branch["b_fr"], branch["b_to"]) for branch in comp_branches)
 
     constraint_mc_network_power_balance(pm, nw, i, comp_gen_ids, comp_pd, comp_qd, comp_gs, comp_bs, comp_branch_g, comp_branch_b)
 end
