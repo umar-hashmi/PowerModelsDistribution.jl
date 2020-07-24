@@ -251,7 +251,7 @@ function build_mn_mc_opf(pm::_PM.AbstractIVRModel)
         variable_mc_branch_current(pm; nw=n)
         variable_mc_transformer_current(pm; nw=n)
         variable_mc_gen_current(pm; nw=n)
-        variable_mc_load_power(pm; nw=n)
+        variable_mc_load_current(pm; nw=n)
         variable_mc_storage_power(pm; nw=n)
 
         for i in ids(pm, n, :ref_buses)

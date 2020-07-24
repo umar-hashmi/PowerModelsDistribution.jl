@@ -565,14 +565,24 @@ function constraint_mc_gen_power_delta(pm::_PM.IVRPowerModel, nw::Int, id::Int, 
     crg = var(pm, nw, :crg, id)
     cig = var(pm, nw, :cig, id)
 
-    prev = Dict(i=>(i+nph-2)%nph+1 for i in 1:nph)
-    next = Dict(i=>i%nph+1 for i in 1:nph)
+    nph = length(pmin)
 
-    vrg = JuMP.@NLexpression(pm.model, [i in 1:nph], vr[i]-vr[next[i]])
-    vig = JuMP.@NLexpression(pm.model, [i in 1:nph], vi[i]-vi[next[i]])
+    prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in enumerate(connections))
+    next = Dict(c=>connections[idx%nph+1] for (idx,c) in enumerate(connections))
 
-    pg = JuMP.@NLexpression(pm.model, [i in 1:nph],  vrg[i]*crg[i]+vig[i]*cig[i])
-    qg = JuMP.@NLexpression(pm.model, [i in 1:nph], -vrg[i]*cig[i]+vig[i]*crg[i])
+    vrg = Dict()
+    vig = Dict()
+    for c in connections
+        vrg[c] = JuMP.@NLexpression(pm.model, vr[c]-vr[next[c]])
+        vig[c] = JuMP.@NLexpression(pm.model, vi[c]-vi[next[c]])
+    end
+
+    pg = Vector{JuMP.NonlinearExpression}([])
+    qg = Vector{JuMP.NonlinearExpression}([])
+    for c in connections
+        push!(pg, JuMP.@NLexpression(pm.model,  vrg[c]*crg[c]+vig[c]*cig[c]))
+        push!(qg, JuMP.@NLexpression(pm.model, -vrg[c]*cig[c]+vig[c]*crg[c]))
+    end
 
     if bounded
         JuMP.@NLconstraint(pm.model, [i in 1:nph], pmin[i] <= pg[i])
@@ -581,18 +591,22 @@ function constraint_mc_gen_power_delta(pm::_PM.IVRPowerModel, nw::Int, id::Int, 
         JuMP.@NLconstraint(pm.model, [i in 1:nph], qmax[i] >= qg[i])
     end
 
-    crg_bus = JuMP.@NLexpression(pm.model, [i in 1:nph], crg[i]-crg[prev[i]])
-    cig_bus = JuMP.@NLexpression(pm.model, [i in 1:nph], cig[i]-cig[prev[i]])
+    crg_bus = Vector{JuMP.NonlinearExpression}([])
+    cig_bus = Vector{JuMP.NonlinearExpression}([])
+    for c in connections
+        push!(crg_bus, JuMP.@NLexpression(pm.model, crg[c]-crg[prev[c]]))
+        push!(cig_bus, JuMP.@NLexpression(pm.model, cig[c]-cig[prev[c]]))
+    end
 
-    var(pm, nw, :crg_bus)[id] = crg_bus
-    var(pm, nw, :cig_bus)[id] = cig_bus
-    var(pm, nw, :pg)[id] = pg
-    var(pm, nw, :qg)[id] = qg
+    var(pm, nw, :crg_bus)[id] = JuMP.Containers.DenseAxisArray(crg_bus, connections)
+    var(pm, nw, :cig_bus)[id] = JuMP.Containers.DenseAxisArray(cig_bus, connections)
+    var(pm, nw, :pg)[id] = JuMP.Containers.DenseAxisArray(pg, connections)
+    var(pm, nw, :qg)[id] = JuMP.Containers.DenseAxisArray(qg, connections)
 
     if report
-        sol(pm, nw, :gen, id)[:crg_bus] = crg_bus
-        sol(pm, nw, :gen, id)[:cig_bus] = cig_bus
-        sol(pm, nw, :gen, id)[:pg] = pg
-        sol(pm, nw, :gen, id)[:qg] = qg
+        sol(pm, nw, :gen, id)[:crg_bus] = JuMP.Containers.DenseAxisArray(crg_bus, connections)
+        sol(pm, nw, :gen, id)[:cig_bus] = JuMP.Containers.DenseAxisArray(cig_bus, connections)
+        sol(pm, nw, :gen, id)[:pg] = JuMP.Containers.DenseAxisArray(pg, connections)
+        sol(pm, nw, :gen, id)[:qg] = JuMP.Containers.DenseAxisArray(qg, connections)
     end
 end
