@@ -36,15 +36,15 @@ function objective_mc_min_load_setpoint_delta(pm::_PM.AbstractPowerModel)
         end
     end
 
-    load_weight = Dict(n => Dict(i => get(load, "weight", 1.0) for (i,load) in ref(pm, n, :load)) for n in nw_ids(pm))
+    w = Dict(n => Dict(i => get(load, "weight", 1.0) for (i,load) in ref(pm, n, :load)) for n in nw_ids(pm))
 
     JuMP.@objective(pm.model, Min,
         sum(
-            sum( (                   10*(1 - var(pm, n, :z_voltage, i)) for i in keys(nw_ref[:bus]))) +
-            sum( ( 10*load_weight[n][i]*(1 - var(pm, n, :z_demand, i))) for i in keys(nw_ref[:load])) +
-            sum( ( sum(    shunt["gs"])*(1 - var(pm, n, :z_shunt, i))) for (i,shunt) in nw_ref[:shunt]) +
-            sum( ( sum(                      var(pm, n, :delta_pg, i)[c] for c in  gen["connections"]) for (i,gen)  in nw_ref[:gen])) +
-            sum( ( sum(                      var(pm, n, :delta_ps, i)[c] for c in strg["connections"]) for (i,strg) in nw_ref[:storage]))
+            sum(                      10*(1 - var(pm, n, :z_voltage, i)) for (i,bus) in nw_ref[:bus]) +
+            sum( w[n][i]*sum(load["pd"])*(1 - var(pm, n, :z_demand, i)) for (i,load) in nw_ref[:load]) +
+            sum(        sum(shunt["gs"])*(1 - var(pm, n, :z_shunt, i)) for (i,shunt) in nw_ref[:shunt]) +
+            sum( sum(          gen["pg"][idx]*var(pm, n, :delta_pg, i)[c] for (idx,c) in enumerate(gen["connections"])) for (i,gen)  in nw_ref[:gen]) +
+            sum( sum(         strg["ps"][idx]*var(pm, n, :delta_ps, i)[c] for (idx,c) in enumerate(strg["connections"])) for (i,strg) in nw_ref[:storage])
         for (n, nw_ref) in nws(pm))
     )
 end
@@ -54,10 +54,8 @@ end
 function objective_mc_min_load_setpoint_delta_simple(pm::_PM.AbstractPowerModel)
     JuMP.@objective(pm.model, Min,
         sum(
-            sum(
-                sum( ((1 - var(pm, n, :z_demand, i))) for i in keys(nw_ref[:load])) +
-                sum( ((1 - var(pm, n, :z_shunt, i))) for (i,shunt) in nw_ref[:shunt])
-            for c in conductor_ids(pm, n))
+            sum( ((1 - var(pm, n, :z_demand, i))) for i in keys(nw_ref[:load])) +
+            sum( ((1 - var(pm, n, :z_shunt, i))) for (i,shunt) in nw_ref[:shunt])
         for (n, nw_ref) in nws(pm))
     )
 end
@@ -66,7 +64,6 @@ end
 "maximum loadability objective (continuous load shed) with storage"
 function objective_mc_max_load_setpoint(pm::_PM.AbstractPowerModel)
     load_weight = Dict(n => Dict(i => get(load, "weight", 1.0) for (i,load) in ref(pm, n, :load)) for n in nw_ids(pm))
-    M = Dict(n => Dict(c => 10*maximum([load_weight[n][i]*abs(load["pd"][c]) for (i,load) in ref(pm, n, :load)]) for c in conductor_ids(pm, n)) for n in nw_ids(pm))
 
     JuMP.@objective(pm.model, Max,
         sum(
@@ -93,13 +90,12 @@ function _PM._objective_min_fuel_cost_polynomial_linquad(pm::_PM.AbstractIVRMode
 
             #to avoid function calls inside of @NLconstraint:
             pg = var(pm, n, :pg, i)
-            nc = length(conductor_ids(pm, n))
             if length(gen["cost"]) == 1
                 gen_cost[(n,i)] = gen["cost"][1]
             elseif length(gen["cost"]) == 2
-                gen_cost[(n,i)] = JuMP.@NLexpression(pm.model, gen["cost"][1]*sum(pg[c] for c in 1:nc) + gen["cost"][2])
+                gen_cost[(n,i)] = JuMP.@NLexpression(pm.model, gen["cost"][1]*sum(pg[c] for c in gen["connections"]) + gen["cost"][2])
             elseif length(gen["cost"]) == 3
-                gen_cost[(n,i)] = JuMP.@NLexpression(pm.model, gen["cost"][1]*sum(pg[c] for c in 1:nc)^2 + gen["cost"][2]*sum(pg[c] for c in 1:nc) + gen["cost"][3])
+                gen_cost[(n,i)] = JuMP.@NLexpression(pm.model, gen["cost"][1]*sum(pg[c] for c in gen["connections"])^2 + gen["cost"][2]*sum(pg[c] for c in gen["connections"]) + gen["cost"][3])
             else
                 gen_cost[(n,i)] = 0.0
             end
@@ -136,4 +132,31 @@ function objective_variable_pg_cost(pm::_PM.AbstractIVRModel; report::Bool=true)
             end
         end
     end
+end
+
+
+""
+function _PM._objective_min_fuel_cost_polynomial_linquad(pm::_PM.AbstractPowerModel; report::Bool=true)
+    gen_cost = Dict()
+    for (n, nw_ref) in nws(pm)
+        for (i,gen) in nw_ref[:gen]
+            pg = sum( var(pm, n, :pg, i)[c] for c in gen["connections"] )
+
+            if length(gen["cost"]) == 1
+                gen_cost[(n,i)] = gen["cost"][1]
+            elseif length(gen["cost"]) == 2
+                gen_cost[(n,i)] = gen["cost"][1]*pg + gen["cost"][2]
+            elseif length(gen["cost"]) == 3
+                gen_cost[(n,i)] = gen["cost"][1]*pg^2 + gen["cost"][2]*pg + gen["cost"][3]
+            else
+                gen_cost[(n,i)] = 0.0
+            end
+        end
+    end
+
+    return JuMP.@objective(pm.model, Min,
+        sum(
+            sum( gen_cost[(n,i)] for (i,gen) in nw_ref[:gen] )
+        for (n, nw_ref) in nws(pm))
+    )
 end
