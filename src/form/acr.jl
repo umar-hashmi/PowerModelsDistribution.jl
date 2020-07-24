@@ -664,8 +664,8 @@ function constraint_mc_gen_power_delta(pm::_PM.AbstractACRModel, nw::Int, id::In
     nph = length(pmin)
     @assert nph == 3 "only phases == 3 delta generators are currently supported"
 
-    prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in connections)
-    next = Dict(c=>connections[idx%nph+1] for (idx,c) in connections)
+    prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in enumerate(connections))
+    next = Dict(c=>connections[idx%nph+1] for (idx,c) in enumerate(connections))
 
     vrg = Dict()
     vig = Dict()
