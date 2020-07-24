@@ -94,7 +94,7 @@ If not specified, the diagonal elements are set to zero.
 function variable_mx_real_with_diag(model::JuMP.Model, indices::Array{T,1}, N::Dict{Int,Int};
         upper_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         lower_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
-        diag::Dict{T,<:Array{<:Any,1}}=Dict([(i, fill(0, N)) for i in indices]),
+        diag::Dict{T,<:Array{<:Any,1}}=Dict([(i, fill(0, N[i])) for i in indices]),
         name="", prefix="") where T
     # the output is a dictionary of (index, matrix) pairs
     dict_mat_vars = Dict{T,Array{JuMP.GenericAffExpr{Float64,JuMP.VariableRef},2}}([(index, zeros(N[index],N[index])) for index in indices])
@@ -106,12 +106,11 @@ function variable_mx_real_with_diag(model::JuMP.Model, indices::Array{T,1}, N::D
                 else
                     varname = isempty(prefix) ? "$(name)_$(n)$(m)" : "$(prefix)_$(name)_$(n)$(m)"
                     # create the element (n,m) for all indices
-                    mat_nm = _make_matrix_variable_element(model, indices, n, m;
+                    mat_nm = _make_matrix_variable_element(model, [index], n, m;
                         upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)
                     # unpack element (n,m) to the correct place in the ouput dict
-                    for index in indices
-                        dict_mat_vars[index][n,m] = mat_nm[index]
-                    end
+
+                    dict_mat_vars[index][n,m] = mat_nm[index]
                 end
             end
         end
@@ -156,11 +155,11 @@ consists of the constants passed as the diag_re and diag_im argument. The diag
 argument is a dictionary of (index, 1d-array) pairs.
 Useful for power matrices with specified diagonals (constant power wye loads).
 """
-function variable_mx_complex_with_diag(model::JuMP.Model, indices::Array{T,1}, N::Int;
+function variable_mx_complex_with_diag(model::JuMP.Model, indices::Array{T,1}, N::Dict{Int,Int};
         upper_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing, lower_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
         symm_bound::Union{Missing, Dict{T,<:Array{<:Real,2}}}=missing,
-        diag_re::Dict{T,<:Array{<:Any,1}}=Dict([(i, zeros(N)) for i in indices]),
-        diag_im::Dict{T,<:Array{<:Any,1}}=Dict([(i, zeros(N)) for i in indices]),
+        diag_re::Dict{T,<:Array{<:Any,1}}=Dict([(i, zeros(N[i])) for i in indices]),
+        diag_im::Dict{T,<:Array{<:Any,1}}=Dict([(i, zeros(N[i])) for i in indices]),
         name::Union{String, Tuple{String,String}}="", prefix="") where T
 
     if !ismissing(symm_bound)

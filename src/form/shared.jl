@@ -173,25 +173,27 @@ function constraint_mc_power_balance(pm::_PM.AbstractWModels, nw::Int, i::Int, t
     ps   = get(var(pm, nw),   :ps, Dict()); _PM._check_var_keys(ps, bus_storage, "active power", "storage")
     qs   = get(var(pm, nw),   :qs, Dict()); _PM._check_var_keys(qs, bus_storage, "reactive power", "storage")
 
+    Gt, Bt = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
+
     cstr_p = JuMP.@constraint(pm.model,
-        sum(diag(P[a]) for a in bus_arcs)
-        + sum(diag(Psw[a_sw]) for a_sw in bus_arcs_sw)
-        + sum(diag(Pt[a_trans]) for a_trans in bus_arcs_trans)
+        sum(diag(P[a]) for (a, conns) in bus_arcs)
+        + sum(diag(Psw[a_sw]) for (a_sw, conns) in bus_arcs_sw)
+        + sum(diag(Pt[a_trans]) for (a_trans, conns) in bus_arcs_trans)
         .==
-        sum(pg[g] for g in bus_gens)
-        - sum(ps[s] for s in bus_storage)
-        - sum(pd[d] for d in bus_loads)
+        sum([pg[g][c] for c in conns] for (g, conns) in bus_gens)
+        - sum([ps[s][c] for c in conns] for (s, conns) in bus_storage)
+        - sum([pd[d][c] for c in conns] for (d, conns) in bus_loads)
         - diag(Wr*Gt'+Wi*Bt')
     )
 
     cstr_q = JuMP.@constraint(pm.model,
-        sum(diag(Q[a]) for a in bus_arcs)
-        + sum(diag(Qsw[a_sw]) for a_sw in bus_arcs_sw)
-        + sum(diag(Qt[a_trans]) for a_trans in bus_arcs_trans)
+        sum(diag(Q[a]) for (a, conns) in bus_arcs)
+        + sum(diag(Qsw[a_sw]) for (a_sw, conns) in bus_arcs_sw)
+        + sum(diag(Qt[a_trans]) for (a_trans, conns) in bus_arcs_trans)
         .==
-        sum(qg[g] for g in bus_gens)
-        - sum(qs[s] for s in bus_storage)
-        - sum(qd[d] for d in bus_loads)
+        sum([qg[g][c] for c in conns] for (g, conns) in bus_gens)
+        - sum([qs[s][c] for c in conns] for (s, conns) in bus_storage)
+        - sum([qd[d][c] for c in conns] for (d, conns) in bus_loads)
         - diag(-Wr*Bt'+Wi*Gt')
     )
 
