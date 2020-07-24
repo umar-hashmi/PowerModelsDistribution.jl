@@ -802,8 +802,8 @@ function constraint_mc_load_power_wye(pm::_PM.AbstractACPModel, nw::Int, id::Int
         pd_bus = a
         qd_bus = b
     else
-        pd_bus = []
-        qd_bus = []
+        pd_bus = Vector{JuMP.NonlinearExpression}([])
+        qd_bus = Vector{JuMP.NonlinearExpression}([])
 
         for (idx, c) in enumerate(connections)
             crd = JuMP.@NLexpression(pm.model,
@@ -849,19 +849,20 @@ function constraint_mc_load_power_delta(pm::_PM.AbstractACPModel, nw::Int, id::I
     va = var(pm, nw, :va, bus_id)
 
     nph = length(a)
+
     prev = Dict(c=>connections[(idx+nph-2)%nph+1] for (idx,c) in enumerate(connections))
     next = Dict(c=>connections[idx%nph+1] for (idx,c) in enumerate(connections))
 
     vrd = Dict()
     vid = Dict()
-    for (idx, c) in enumerate(connections[1:nph])
+    for (idx, c) in enumerate(connections)
         vrd[c] = JuMP.@NLexpression(pm.model, vm[c]*cos(va[c])-vm[next[c]]*cos(va[next[c]]))
         vid[c] = JuMP.@NLexpression(pm.model, vm[c]*sin(va[c])-vm[next[c]]*sin(va[next[c]]))
     end
 
     crd = Dict()
     cid = Dict()
-    for (idx, c) in enumerate(connections[1:nph])
+    for (idx, c) in enumerate(connections)
         crd[c] = JuMP.@NLexpression(pm.model,
              a[idx]*vrd[c]*(vrd[c]^2+vid[c]^2)^(alpha[idx]/2-1)
             +b[idx]*vid[c]*(vrd[c]^2+vid[c]^2)^(beta[idx]/2 -1)
@@ -874,20 +875,20 @@ function constraint_mc_load_power_delta(pm::_PM.AbstractACPModel, nw::Int, id::I
 
     crd_bus = Dict()
     cid_bus = Dict()
-    for (idx, c) in enumerate(connections[1:nph])
+    for (idx, c) in enumerate(connections)
         crd_bus[c] = JuMP.@NLexpression(pm.model, crd[c]-crd[prev[c]])
         cid_bus[c] = JuMP.@NLexpression(pm.model, cid[c]-cid[prev[c]])
     end
 
     pd_bus = Vector{JuMP.NonlinearExpression}([])
     qd_bus = Vector{JuMP.NonlinearExpression}([])
-    for (idx,c) in enumerate(connections[1:nph])
+    for (idx,c) in enumerate(connections)
         push!(pd_bus, JuMP.@NLexpression(pm.model,  vm[c]*cos(va[c])*crd_bus[c]+vm[c]*sin(va[c])*cid_bus[c]))
         push!(qd_bus, JuMP.@NLexpression(pm.model, -vm[c]*cos(va[c])*cid_bus[c]+vm[c]*sin(va[c])*crd_bus[c]))
     end
 
-    pd_bus = JuMP.Containers.DenseAxisArray(pd_bus, connections[1:nph])
-    qd_bus = JuMP.Containers.DenseAxisArray(qd_bus, connections[1:nph])
+    pd_bus = JuMP.Containers.DenseAxisArray(pd_bus, connections)
+    qd_bus = JuMP.Containers.DenseAxisArray(qd_bus, connections)
 
     var(pm, nw, :pd_bus)[id] = pd_bus
     var(pm, nw, :qd_bus)[id] = qd_bus
@@ -898,7 +899,7 @@ function constraint_mc_load_power_delta(pm::_PM.AbstractACPModel, nw::Int, id::I
 
         pd = []
         qd = []
-        for (idx,c) in enumerate(connections[1:nph])
+        for (idx,c) in enumerate(connections)
             push!(pd, JuMP.@NLexpression(pm.model, a[idx]*(vrd[c]^2+vid[c]^2)^(alpha[idx]/2) ))
             push!(qd, JuMP.@NLexpression(pm.model, b[idx]*(vrd[c]^2+vid[c]^2)^(beta[idx]/2)  ))
         end
