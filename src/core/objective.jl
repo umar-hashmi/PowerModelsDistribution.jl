@@ -36,15 +36,15 @@ function objective_mc_min_load_setpoint_delta(pm::_PM.AbstractPowerModel)
         end
     end
 
-    w = Dict(n => Dict(i => get(load, "weight", 1.0) for (i,load) in ref(pm, n, :load)) for n in nw_ids(pm))
+    w = Dict(n => Dict(i => 10*get(load, "weight", 1.0) for (i,load) in ref(pm, n, :load)) for n in nw_ids(pm))
 
     JuMP.@objective(pm.model, Min,
         sum(
             sum(                      10*(1 - var(pm, n, :z_voltage, i)) for (i,bus) in nw_ref[:bus]) +
             sum( w[n][i]*sum(load["pd"])*(1 - var(pm, n, :z_demand, i)) for (i,load) in nw_ref[:load]) +
             sum(        sum(shunt["gs"])*(1 - var(pm, n, :z_shunt, i)) for (i,shunt) in nw_ref[:shunt]) +
-            sum( sum(          gen["pg"][idx]*var(pm, n, :delta_pg, i)[c] for (idx,c) in enumerate(gen["connections"])) for (i,gen)  in nw_ref[:gen]) +
-            sum( sum(         strg["ps"][idx]*var(pm, n, :delta_ps, i)[c] for (idx,c) in enumerate(strg["connections"])) for (i,strg) in nw_ref[:storage])
+            sum( sum(                         var(pm, n, :delta_pg, i)[c] for (idx,c) in enumerate(gen["connections"])) for (i,gen)  in nw_ref[:gen]) +
+            sum( sum(                         var(pm, n, :delta_ps, i)[c] for (idx,c) in enumerate(strg["connections"])) for (i,strg) in nw_ref[:storage])
         for (n, nw_ref) in nws(pm))
     )
 end

@@ -42,7 +42,7 @@ function constraint_mc_bus_voltage_magnitude_on_off(pm::_PM.AbstractPowerModel, 
             JuMP.@constraint(pm.model, vm[t] <= vmax[idx]*z_voltage)
         end
 
-        if isfinite(vmin[t])
+        if isfinite(vmin[idx])
             JuMP.@constraint(pm.model, vm[t] >= vmin[idx]*z_voltage)
         end
     end

@@ -154,49 +154,54 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACPModel, nw::Int, i::
     qsw      = get(var(pm, nw),  :qsw, Dict()); _PM._check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
     pt       = get(var(pm, nw),   :pt, Dict()); _PM._check_var_keys(pt, bus_arcs_trans, "active power", "transformer")
     qt       = get(var(pm, nw),   :qt, Dict()); _PM._check_var_keys(qt, bus_arcs_trans, "reactive power", "transformer")
+
     z_demand = var(pm, nw, :z_demand)
-    z_shunt  = var(pm, nw, :z_shunt)
+    z_gen = haskey(var(pm, nw), :z_gen) ? var(pm, nw, :z_gen) : Dict(i => 1.0 for i in ids(pm, nw, :gen))
+    z_storage = haskey(var(pm, nw), :z_storage) ? var(pm, nw, :z_storage) : Dict(i => 1.0 for i in ids(pm, nw, :storage))
+    z_shunt  = haskey(var(pm, nw), :z_shunt) ? var(pm, nw, :z_shunt) : Dict(i => 1.0 for i in ids(pm, nw, :shunt))
 
     cstr_p = []
     cstr_q = []
 
     ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
+    # @warn "" [ref(pm, nw, :shunt, s, "gs") for (s, conns) in bus_shunts] [ref(pm, nw, :shunt, s, "bs") for (s, conns) in bus_shunts]
     for (idx,t) in ungrounded_terminals
         cp = JuMP.@NLconstraint(pm.model,
-              sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
-            + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
-            + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
-            ==
-              sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
-            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
-            - sum(ref(pm, nw, :load, l)["pd"][findfirst(isequal(t), conns)] * z_demand[l] for (l, conns) in bus_loads if t in conns)
-            - sum( z_shunt[sh] *
-                (ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)][findfirst(isequal(t), conns)] * vm[t]^2
-                +sum( ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * cos(va[t]-va[u])
-                     +ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * sin(va[t]-va[u])
+              sum(     p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(  pt[a_t][t] for (a_t, conns) in bus_arcs_trans if t in conns)
+            - sum(pg[g][t]*z_gen[g] for (g, conns) in bus_gens if t in conns)
+            + sum(ps[s][t]*z_storage[s] for (s, conns) in bus_storage if t in conns)
+            + sum(ref(pm, nw, :load, d, "pd")[findfirst(isequal(t), conns)]*z_demand[d] for (d, conns) in bus_loads if t in conns)
+            + sum(z_shunt[s] *
+                (ref(pm, nw, :shunt, s)["gs"][findfirst(isequal(t), conns), findfirst(isequal(t), conns)] * vm[t]^2
+                +sum( ref(pm, nw, :shunt, s)["gs"][findfirst(isequal(t), conns), findfirst(isequal(u), conns)] * vm[t]*vm[u] * cos(va[t]-va[u])
+                     +ref(pm, nw, :shunt, s)["bs"][findfirst(isequal(t), conns), findfirst(isequal(u), conns)] * vm[t]*vm[u] * sin(va[t]-va[u])
                 for (jdx, u) in ungrounded_terminals if idx != jdx ) )
-            for (sh, conns) in bus_shunts if t in conns )
+            for (s, conns) in bus_shunts if t in conns )
+            ==
+            0.0
         )
         push!(cstr_p, cp)
 
         cq = JuMP.@NLconstraint(pm.model,
-              sum(  p[a][t] for (a, conns) in bus_arcs)
-            + sum(psw[a][t] for (a, conns) in bus_arcs_sw)
-            + sum( pt[a][t] for (a, conns) in bus_arcs_trans)
-            ==
-              sum(pg[g][t] for (g, conns) in bus_gens)
-            - sum(ps[s][t] for (s, conns) in bus_storage)
-            - sum(ref(pm, nw, :load, l)["qd"][findfirst(isequal(t), conns)] * z_demand[l] for (l, conns) in bus_loads if t in conns)
-            - sum( z_shunt[sh] *
-                (-ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)][findfirst(isequal(t), conns)] * vm[t]^2
-                 -sum( ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * cos(va[t]-va[u])
-                     -ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)][findfirst(isequal(u), conns)] * vm[t]*vm[u] * sin(va[t]-va[u])
+              sum(     q[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(qsw[a_sw][t] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(  qt[a_t][t] for (a_t, conns) in bus_arcs_trans if t in conns)
+            - sum(    qg[g][t]*z_gen[g] for (g, conns) in bus_gens if t in conns)
+            + sum(    qs[s][t]*z_storage[s] for (s, conns) in bus_storage if t in conns)
+            + sum(ref(pm, nw, :load, l, "qd")[findfirst(isequal(t), conns)]*z_demand[l] for (l, conns) in bus_loads if t in conns)
+            + sum(z_shunt[sh] *
+                (-ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns), findfirst(isequal(t), conns)] * vm[t]^2
+                 -sum( ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns), findfirst(isequal(u), conns)] * vm[t]*vm[u] * cos(va[t]-va[u])
+                      -ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns), findfirst(isequal(u), conns)] * vm[t]*vm[u] * sin(va[t]-va[u])
                 for (jdx, u) in ungrounded_terminals if idx != jdx ) )
             for (sh, conns) in bus_shunts if t in conns )
+            ==
+            0.0
         )
         push!(cstr_q, cq)
-
     end
 
     con(pm, nw, :lam_kcl_r)[i] = cstr_p

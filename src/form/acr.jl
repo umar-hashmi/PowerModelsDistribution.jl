@@ -442,13 +442,12 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACRModel, nw::Int, i::
     qsw  = get(var(pm, nw), :qsw,    Dict()); _PM._check_var_keys(qsw, bus_arcs_sw,    "reactive power", "switch")
     pt   = get(var(pm, nw), :pt,     Dict()); _PM._check_var_keys(pt,  bus_arcs_trans, "active power",   "transformer")
     qt   = get(var(pm, nw), :qt,     Dict()); _PM._check_var_keys(qt,  bus_arcs_trans, "reactive power", "transformer")
-    pd   = get(var(pm, nw), :pd_bus, Dict()); _PM._check_var_keys(pd,  bus_loads,      "active power",   "load")
-    qd   = get(var(pm, nw), :qd_bus, Dict()); _PM._check_var_keys(pd,  bus_loads,      "reactive power", "load")
 
-    z_demand = var(pm, nw, :z_demand)
-    z_shunt  = var(pm, nw, :z_shunt)
-    z_gen = var(pm, nw, :z_gen)
-    z_storage = var(pm, nw, :z_storage)
+    zd = var(pm, nw, :z_demand)
+    z_shunt  = var(pm, nw, :z_shunt)  # TODO
+    zg = haskey(var(pm, nw), :z_gen) ? var(pm, nw, :z_gen) : Dict(i => 1.0 for i in ids(pm, nw, :gen))
+    zs = haskey(var(pm, nw), :z_storage) ? var(pm, nw, :z_storage) : Dict(i => 1.0 for i in ids(pm, nw, :storage))
+
 
     Gt, Bt = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
 
@@ -459,29 +458,31 @@ function constraint_mc_power_balance_shed(pm::_PM.AbstractACRModel, nw::Int, i::
 
     # pd/qd can be NLexpressions, so cannot be vectorized
     for (idx, t) in ungrounded_terminals
-        cp = JuMP.@NLconstraint(pm.model,
-              sum(p[arc][t] for (arc, conns) in bus_arcs if t in conns)
-            + sum(psw[arc][t] for (arc, conns) in bus_arcs_sw if t in conns)
-            + sum(pt[arc][t] for (arc, conns) in bus_arcs_trans if t in conns)
+        cp = @smart_constraint(pm.model, [p, pg, ps, psw, pt],
+              sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+            - sum(pg[g][t]*zg[g] for (g, conns) in bus_gens if t in conns)
+            + sum(ps[s][t]*zs[s] for (s, conns) in bus_storage if t in conns)
+            + sum(ref(pm, nw, :load, d, "pd")[findfirst(isequal(t), conns)]*zd[d] for (d, conns) in bus_loads if t in conns)
+            + (+vr[t] * sum(Gt[idx,jdx]*vr[u]-Bt[idx,jdx]*vi[u] for (jdx,u) in ungrounded_terminals)
+               +vi[t] * sum(Gt[idx,jdx]*vi[u]+Bt[idx,jdx]*vr[u] for (jdx,u) in ungrounded_terminals))
             ==
-              sum(pg[gen][t]*z_gen[gen] for (gen, conns) in bus_gens if t in conns)
-            - sum(ps[strg][t]*z_storage[strg] for (strg, conns) in bus_storage if t in conns)
-            - sum(pd[load][t]*z_demand[load] for (load, conns) in bus_loads if t in conns)
-            + (-vr[t] * sum(Gt[idx,jdx]*vr[u]-Bt[idx,jdx]*vi[u] for (jdx,u) in ungrounded_terminals)
-               -vi[t] * sum(Gt[idx,jdx]*vi[u]+Bt[idx,jdx]*vr[u] for (jdx,u) in ungrounded_terminals))
+            0.0
         )
         push!(cstr_p, cp)
 
-        cq = JuMP.@NLconstraint(pm.model,
-              sum(q[arc][t] for (arc, conns) in bus_arcs if t in conns)
-            + sum(qsw[arc][t] for (arc, conns) in bus_arcs_sw if t in conns)
-            + sum(qt[arc][t] for (arc, conns) in bus_arcs_trans if t in conns)
+        cq = @smart_constraint(pm.model, [q, qg, qs, qsw, qt],
+              sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
+            + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+            + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+            - sum(qg[g][t]*zg[g] for (g, conns) in bus_gens if t in conns)
+            + sum(qs[s][t]*zs[s] for (s, conns) in bus_storage if t in conns)
+            + sum(ref(pm, nw, :load, d, "qd")[findfirst(isequal(t), conns)]*zd[d] for (d, conns) in bus_loads if t in conns)
+            + (-vr[t] * sum(Gt[idx,jdx]*vi[u]+Bt[idx,jdx]*vr[u] for (jdx,u) in ungrounded_terminals)
+               +vi[t] * sum(Gt[idx,jdx]*vr[u]-Bt[idx,jdx]*vi[u] for (jdx,u) in ungrounded_terminals))
             ==
-              sum(qg[gen][t]*z_gen[gen] for (gen, conns) in bus_gens if t in conns)
-            - sum(qs[strg][t]*z_storage[strg] for (strg, conns) in bus_storage if t in conns)
-            - sum(qd[load][t]*z_demand[load] for (load, conns) in bus_loads if t in conns)
-            + ( vr[t] * sum(Gt[idx,jdx]*vi[u]+Bt[idx,jdx]*vr[u] for (jdx,u) in ungrounded_terminals)
-               -vi[t] * sum(Gt[idx,jdx]*vr[u]-Bt[idx,jdx]*vi[u] for (jdx,u) in ungrounded_terminals))
+            0.0
         )
         push!(cstr_q, cq)
     end
