@@ -15,7 +15,7 @@ function build_mc_pf(pm::_PM.AbstractPowerModel)
     variable_mc_bus_voltage(pm; bounded=false)
     variable_mc_branch_power(pm; bounded=false)
     variable_mc_transformer_power(pm; bounded=false)
-    variable_mc_gen_power_setpoint(pm; bounded=false)
+    variable_mc_generator_power(pm; bounded=false)
     variable_mc_load_power(pm; bounded=false)
     variable_mc_storage_power(pm; bounded=false)
 
@@ -30,7 +30,7 @@ function build_mc_pf(pm::_PM.AbstractPowerModel)
 
     # gens should be constrained before KCL, or Pd/Qd undefined
     for id in ids(pm, :gen)
-        constraint_mc_gen_setpoint(pm, id)
+        constraint_mc_generator_power(pm, id)
     end
 
     # loads should be constrained before KCL, or Pd/Qd undefined
@@ -77,7 +77,7 @@ function build_mc_pf(pm::_PM.AbstractIVRModel)
     variable_mc_bus_voltage(pm, bounded = false)
     variable_mc_branch_current(pm, bounded = false)
     variable_mc_transformer_current(pm, bounded = false)
-    variable_mc_gen_current(pm, bounded = false)
+    variable_mc_generator_current(pm, bounded = false)
     variable_mc_load_current(pm, bounded = false)
 
     # Constraints
@@ -89,7 +89,7 @@ function build_mc_pf(pm::_PM.AbstractIVRModel)
 
     # gens should be constrained before KCL, or Pd/Qd undefined
     for id in ids(pm, :gen)
-        constraint_mc_gen_setpoint(pm, id)
+        constraint_mc_generator_power(pm, id)
     end
 
     # loads should be constrained before KCL, or Pd/Qd undefined
@@ -131,7 +131,7 @@ function build_mc_pf(pm::AbstractUBFModels)
     variable_mc_branch_current(pm)
     variable_mc_branch_power(pm)
     variable_mc_transformer_power(pm; bounded=false)
-    variable_mc_gen_power_setpoint(pm; bounded=false)
+    variable_mc_generator_power(pm; bounded=false)
     variable_mc_load_power(pm)
     variable_mc_storage_power(pm; bounded=false)
 
@@ -148,7 +148,7 @@ function build_mc_pf(pm::AbstractUBFModels)
     end
 
     for id in ids(pm, :gen)
-        constraint_mc_gen_setpoint(pm, id)
+        constraint_mc_generator_power(pm, id)
     end
 
     for id in ids(pm, :load)

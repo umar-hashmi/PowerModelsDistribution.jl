@@ -874,14 +874,14 @@ end
 
 
 "create variables for generators, delegate to PowerModels"
-function variable_mc_gen_power_setpoint(pm::_PM.AbstractPowerModel; kwargs...)
-    variable_mc_gen_power_setpoint_real(pm; kwargs...)
-    variable_mc_gen_power_setpoint_imaginary(pm; kwargs...)
+function variable_mc_generator_power(pm::_PM.AbstractPowerModel; kwargs...)
+    variable_mc_generator_power_real(pm; kwargs...)
+    variable_mc_generator_power_imaginary(pm; kwargs...)
 end
 
 
 ""
-function variable_mc_gen_power_setpoint_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_power_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     pg = var(pm, nw)[:pg] = Dict(i => JuMP.@variable(pm.model,
             [c in connections[i]], base_name="$(nw)_pg_$(i)",
@@ -911,7 +911,7 @@ end
 
 
 ""
-function variable_mc_gen_power_setpoint_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_power_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     qg = var(pm, nw)[:qg] = Dict(i => JuMP.@variable(pm.model,
             [c in connections[i]], base_name="$(nw)_qg_$(i)",
@@ -941,7 +941,7 @@ end
 
 
 "variable: `crg[j]` for `j` in `gen`"
-function variable_mc_gen_current_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_current_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     crg = var(pm, nw)[:crg] = Dict(i => JuMP.@variable(pm.model,
             [c in connections[i]], base_name="$(nw)_crg_$(i)",
@@ -962,7 +962,7 @@ function variable_mc_gen_current_real(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw
 end
 
 "variable: `cig[j]` for `j` in `gen`"
-function variable_mc_gen_current_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_current_imaginary(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     cig = var(pm, nw)[:cig] = Dict(i => JuMP.@variable(pm.model,
             [c in connections[i]], base_name="$(nw)_cig_$(i)",
@@ -983,13 +983,13 @@ function variable_mc_gen_current_imaginary(pm::_PM.AbstractPowerModel; nw::Int=p
 end
 
 
-function variable_mc_gen_power_setpoint_on_off(pm::_PM.AbstractPowerModel; kwargs...)
-    variable_mc_gen_power_setpoint_real_on_off(pm; kwargs...)
-    variable_mc_gen_power_setpoint_imaginary_on_off(pm; kwargs...)
+function variable_mc_generator_power_on_off(pm::_PM.AbstractPowerModel; kwargs...)
+    variable_mc_generator_power_real_on_off(pm; kwargs...)
+    variable_mc_generator_power_imaginary_on_off(pm; kwargs...)
 end
 
 
-function variable_mc_gen_power_setpoint_real_on_off(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_power_real_on_off(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     pg = var(pm, nw)[:pg] = Dict(i => JuMP.@variable(pm.model,
         [c in connections[i]], base_name="$(nw)_pg_$(i)",
@@ -1018,7 +1018,7 @@ function variable_mc_gen_power_setpoint_real_on_off(pm::_PM.AbstractPowerModel; 
 end
 
 
-function variable_mc_gen_power_setpoint_imaginary_on_off(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_power_imaginary_on_off(pm::_PM.AbstractPowerModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     connections = Dict(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     qg = var(pm, nw)[:qg] = Dict(i => JuMP.@variable(pm.model,
         [c in connections[i]], base_name="$(nw)_qg_$(i)",

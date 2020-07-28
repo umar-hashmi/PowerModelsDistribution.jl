@@ -220,9 +220,9 @@ end
 For the matrix KCL formulation, the generator needs an explicit current and
 power variable.
 """
-function variable_mc_gen_power_setpoint(pm::SDPUBFKCLMXModel; kwargs...)
-    variable_mc_gen_current(pm; kwargs...)
-    variable_mc_gen_power(pm; kwargs...)
+function variable_mc_generator_power(pm::SDPUBFKCLMXModel; kwargs...)
+    variable_mc_generator_current(pm; kwargs...)
+    variable_mc_generator_power(pm; kwargs...)
 end
 
 
@@ -230,7 +230,7 @@ end
 For the matrix KCL formulation, the generator needs an explicit power
 variable.
 """
-function variable_mc_gen_power(pm::SDPUBFKCLMXModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_power(pm::SDPUBFKCLMXModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
 
     gen_ids = collect(ids(pm, nw, :gen))
@@ -286,7 +286,7 @@ end
 For the matrix KCL formulation, the generator needs an explicit current
 variable.
 """
-function variable_mc_gen_current(pm::AbstractUBFModels; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_current(pm::AbstractUBFModels; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
 
     gen_ids = collect(ids(pm, nw, :gen))
@@ -526,7 +526,7 @@ end
 Link the current and power withdrawn by a generator at the bus through a PSD
 constraint. The rank-1 constraint is dropped in this formulation.
 """
-function constraint_mc_gen_setpoint(pm::SDPUBFKCLMXModel, gen_id::Int; nw::Int=pm.cnw)
+function constraint_mc_generator_power(pm::SDPUBFKCLMXModel, gen_id::Int; nw::Int=pm.cnw)
     Pg = var(pm, nw, :Pg_bus, gen_id)
     Qg = var(pm, nw, :Qg_bus, gen_id)
     bus_id = ref(pm, nw, :gen, gen_id)["gen_bus"]

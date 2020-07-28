@@ -86,9 +86,9 @@ end
 
 
 ""
-function variable_mc_gen_current(pm::_PM.AbstractIVRModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true, kwargs...)
-    variable_mc_gen_current_real(pm, nw=nw, bounded=bounded, report=report; kwargs...)
-    variable_mc_gen_current_imaginary(pm, nw=nw, bounded=bounded, report=report; kwargs...)
+function variable_mc_generator_current(pm::_PM.AbstractIVRModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true, kwargs...)
+    variable_mc_generator_current_real(pm, nw=nw, bounded=bounded, report=report; kwargs...)
+    variable_mc_generator_current_imaginary(pm, nw=nw, bounded=bounded, report=report; kwargs...)
 
     var(pm, nw)[:crg_bus] = Dict{Int, Any}()
     var(pm, nw)[:cig_bus] = Dict{Int, Any}()
@@ -512,7 +512,7 @@ end
 
 
 "wye connected generator setpoint constraint for IVR formulation"
-function constraint_mc_gen_setpoint_wye(pm::_PM.IVRPowerModel, nw::Int, id::Int, bus_id::Int, connections::Vector{Int}, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real}; report::Bool=true, bounded::Bool=true)
+function constraint_mc_generator_power_wye(pm::_PM.IVRPowerModel, nw::Int, id::Int, bus_id::Int, connections::Vector{Int}, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real}; report::Bool=true, bounded::Bool=true)
     vr = var(pm, nw, :vr, bus_id)
     vi = var(pm, nw, :vi, bus_id)
     crg = var(pm, nw, :crg, id)
@@ -559,7 +559,7 @@ end
 
 
 "delta connected generator setpoint constraint for IVR formulation"
-function constraint_mc_gen_power_delta(pm::_PM.IVRPowerModel, nw::Int, id::Int, bus_id::Int, connections::Vector{Int}, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real}; report::Bool=true, bounded::Bool=true)
+function constraint_mc_generator_power_delta(pm::_PM.IVRPowerModel, nw::Int, id::Int, bus_id::Int, connections::Vector{Int}, pmin::Vector{<:Real}, pmax::Vector{<:Real}, qmin::Vector{<:Real}, qmax::Vector{<:Real}; report::Bool=true, bounded::Bool=true)
     vr = var(pm, nw, :vr, bus_id)
     vi = var(pm, nw, :vi, bus_id)
     crg = var(pm, nw, :crg, id)

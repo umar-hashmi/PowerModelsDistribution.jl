@@ -19,7 +19,7 @@ function build_mc_opf_pbs(pm::_PM.AbstractPowerModel)
     variable_mc_branch_power(pm)
     variable_mc_transformer_power(pm)
 
-    variable_mc_gen_power_setpoint(pm)
+    variable_mc_generator_power(pm)
 
     variable_mc_slack_bus_power(pm)
 
@@ -54,7 +54,7 @@ function build_mc_pf_pbs(pm::_PM.AbstractPowerModel)
     variable_mc_branch_power(pm; bounded=false)
     variable_mc_transformer_power(pm; bounded=false)
 
-    variable_mc_gen_power_setpoint(pm; bounded=false)
+    variable_mc_generator_power(pm; bounded=false)
 
     variable_mc_slack_bus_power(pm)
 

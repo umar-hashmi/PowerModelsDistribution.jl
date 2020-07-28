@@ -21,7 +21,7 @@ function build_mc_opf(pm::_PM.AbstractPowerModel)
     variable_mc_bus_voltage(pm)
     variable_mc_branch_power(pm)
     variable_mc_transformer_power(pm)
-    variable_mc_gen_power_setpoint(pm)
+    variable_mc_generator_power(pm)
     variable_mc_load_power(pm)
     variable_mc_storage_power(pm)
 
@@ -33,7 +33,7 @@ function build_mc_opf(pm::_PM.AbstractPowerModel)
 
     # generators should be constrained before KCL, or Pd/Qd undefined
     for id in ids(pm, :gen)
-        constraint_mc_gen_setpoint(pm, id)
+        constraint_mc_generator_power(pm, id)
     end
 
     # loads should be constrained before KCL, or Pd/Qd undefined
@@ -76,7 +76,7 @@ function build_mc_opf(pm::_PM.AbstractIVRModel)
     variable_mc_bus_voltage(pm)
     variable_mc_branch_current(pm)
     variable_mc_transformer_current(pm)
-    variable_mc_gen_current(pm)
+    variable_mc_generator_current(pm)
     variable_mc_load_current(pm)
 
     # Constraints
@@ -86,7 +86,7 @@ function build_mc_opf(pm::_PM.AbstractIVRModel)
 
     # gens should be constrained before KCL, or Pd/Qd undefined
     for id in ids(pm, :gen)
-        constraint_mc_gen_setpoint(pm, id)
+        constraint_mc_generator_power(pm, id)
     end
 
     # loads should be constrained before KCL, or Pd/Qd undefined
@@ -127,7 +127,7 @@ function build_mc_opf(pm::AbstractUBFModels)
     variable_mc_branch_power(pm)
     # TODO: revert to bounded in v0.10
     variable_mc_transformer_power(pm)
-    variable_mc_gen_power_setpoint(pm)
+    variable_mc_generator_power(pm)
     variable_mc_load_power(pm)
     variable_mc_storage_power(pm)
 
@@ -140,7 +140,7 @@ function build_mc_opf(pm::AbstractUBFModels)
 
     # gens should be constrained before KCL, or Pd/Qd undefined
     for id in ids(pm, :gen)
-        constraint_mc_gen_setpoint(pm, id)
+        constraint_mc_generator_power(pm, id)
     end
 
     # loads should be constrained before KCL, or Pd/Qd undefined
@@ -184,7 +184,7 @@ function build_mn_mc_opf(pm::_PM.AbstractPowerModel)
         variable_mc_bus_voltage(pm; nw=n)
         variable_mc_branch_power(pm; nw=n)
         variable_mc_transformer_power(pm; nw=n)
-        variable_mc_gen_power_setpoint(pm; nw=n)
+        variable_mc_generator_power(pm; nw=n)
         variable_mc_load_power(pm; nw=n)
         variable_mc_storage_power(pm; nw=n)
 
@@ -195,7 +195,7 @@ function build_mn_mc_opf(pm::_PM.AbstractPowerModel)
         end
 
         for id in ids(pm, n, :gen)
-            constraint_mc_gen_setpoint(pm, id; nw=n)
+            constraint_mc_generator_power(pm, id; nw=n)
         end
 
         for id in ids(pm, n, :load)
@@ -250,7 +250,7 @@ function build_mn_mc_opf(pm::_PM.AbstractIVRModel)
         variable_mc_bus_voltage(pm; nw=n)
         variable_mc_branch_current(pm; nw=n)
         variable_mc_transformer_current(pm; nw=n)
-        variable_mc_gen_current(pm; nw=n)
+        variable_mc_generator_current(pm; nw=n)
         variable_mc_load_current(pm; nw=n)
         variable_mc_storage_power(pm; nw=n)
 
@@ -259,7 +259,7 @@ function build_mn_mc_opf(pm::_PM.AbstractIVRModel)
         end
 
         for id in ids(pm, n, :gen)
-            constraint_mc_gen_setpoint(pm, id; nw=n)
+            constraint_mc_generator_power(pm, id; nw=n)
         end
 
         for id in ids(pm, n, :load)
@@ -316,7 +316,7 @@ function build_mn_mc_opf(pm::AbstractUBFModels)
         variable_mc_branch_current(pm; nw=n)
         variable_mc_branch_power(pm; nw=n)
         variable_mc_transformer_power(pm; nw=n)
-        variable_mc_gen_power_setpoint(pm; nw=n)
+        variable_mc_generator_power(pm; nw=n)
         variable_mc_load_power(pm; nw=n)
         variable_mc_storage_power(pm; nw=n)
 
@@ -327,7 +327,7 @@ function build_mn_mc_opf(pm::AbstractUBFModels)
         end
 
         for id in ids(pm, n, :gen)
-            constraint_mc_gen_setpoint(pm, id; nw=n)
+            constraint_mc_generator_power(pm, id; nw=n)
         end
 
         for id in ids(pm, n, :load)

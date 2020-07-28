@@ -2,12 +2,12 @@ import LinearAlgebra: diag
 
 
 "apo models ignore reactive power flows"
-function variable_mc_gen_power_setpoint_imaginary(pm::_PM.AbstractActivePowerModel; kwargs...)
+function variable_mc_generator_power_imaginary(pm::_PM.AbstractActivePowerModel; kwargs...)
 end
 
 
 "apo models ignore reactive power flows"
-function variable_mc_gen_power_setpoint_imaginary_on_off(pm::_PM.AbstractActivePowerModel; kwargs...)
+function variable_mc_generator_power_imaginary_on_off(pm::_PM.AbstractActivePowerModel; kwargs...)
 end
 
 
@@ -343,7 +343,7 @@ end
 
 
 "Only support wye-connected generators."
-function constraint_mc_gen_setpoint(pm::_PM.AbstractActivePowerModel, id::Int; nw::Int=pm.cnw, report::Bool=true)
+function constraint_mc_generator_power(pm::_PM.AbstractActivePowerModel, id::Int; nw::Int=pm.cnw, report::Bool=true)
     var(pm, nw, :pg_bus)[id] = var(pm, nw, :pg, id)
 end
 
