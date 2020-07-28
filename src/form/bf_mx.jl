@@ -22,26 +22,25 @@ end
 
 
 ""
-function variable_mc_bus_voltage_prod_hermitian(pm::AbstractUBFModels; n_cond::Int=3, nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_bus_voltage_prod_hermitian(pm::AbstractUBFModels; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     bus_ids = collect(ids(pm, nw, :bus))
+    terminals = Dict{Int,Vector{Int}}(i => bus["terminals"] for (i,bus) in ref(pm, nw, :bus))
 
     if bounded
         # get bounds
         vmax = Dict([(id, ref(pm, nw, :bus, id, "vmax")) for id in bus_ids])
         vmin = Dict([(id, ref(pm, nw, :bus, id, "vmin")) for id in bus_ids])
         # create bounded Hermitian matrix variables
-        (Wr,Wi) = variable_mx_hermitian(pm.model, bus_ids, Dict(i => length(bus["terminals"]) for (i,bus) in ref(pm, nw, :bus));
-            sqrt_upper_bound=vmax, sqrt_lower_bound=vmin, name="W", prefix="$nw")
+        (Wr,Wi) = variable_mx_hermitian(pm.model, bus_ids, terminals; sqrt_upper_bound=vmax, sqrt_lower_bound=vmin, name="W", prefix="$nw")
     else
         # create unbounded Hermitian matrix variables
-        (Wr,Wi) = variable_mx_hermitian(pm.model, bus_ids, n_cond;
-            set_lower_bound_diag_to_zero=true, name="W", prefix="$nw")
+        (Wr,Wi) = variable_mx_hermitian(pm.model, bus_ids, terminals; set_lower_bound_diag_to_zero=true, name="W", prefix="$nw")
     end
     v_start = exp.((im*2*pi/3).*[0; -1; 1]) #TODO this should be made more generic eventually
     W_start = v_start*v_start'
     for (id,_) in Wr
-        for i in 1:3
-            for j in 1:i
+        for (i,t) in enumerate(terminals[id])
+            for (j,u) in enumerate(terminals[id])
                 JuMP.set_start_value(Wr[id][i,j], real.(W_start)[i,j])
                 if j<i
                     Wi_ij = collect(keys(Wi[id][i,j].terms))[1]
@@ -63,27 +62,25 @@ end
 
 
 ""
-function constraint_mc_branch_current_series_product_hermitian(pm::AbstractUBFModels; n_cond::Int=3, nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function constraint_mc_branch_current_series_product_hermitian(pm::AbstractUBFModels; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     branches = ref(pm, nw, :branch)
     buses = ref(pm, nw, :bus)
 
     branch_ids = collect(keys(branches))
+    branch_connections = Dict{Int,Vector{Int}}(l => br["f_connections"] for (l,br) in ref(pm, nw, :branch))
 
     if bounded
         # calculate max series current for each branch
-        cmax = Dict{eltype(branch_ids), Array{Real,1}}()
+        cmax = Dict{eltype(branch_ids), Vector{Real}}()
         for (key, branch) in branches
             bus_fr = buses[branch["f_bus"]]
             bus_to = buses[branch["t_bus"]]
             cmax[key] = _calc_branch_series_current_max(branch, bus_fr, bus_to)
         end
         # create matrix variables
-        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, Dict{Int,Int}(i => length(bus["terminals"]) for (i,bus) in ref(pm, nw, :bus));
-            sqrt_upper_bound=cmax, set_lower_bound_diag_to_zero=true,
-            name="CC", prefix="$nw")
+        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, branch_connections; sqrt_upper_bound=cmax, set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
     else
-        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, Dict{Int,Int}(i => length(bus["terminals"]) for (i,bus) in ref(pm, nw, :bus));
-            set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
+        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, branch_connections; set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
     end
 
     for (id,L) in Lr
@@ -101,13 +98,13 @@ end
 
 
 ""
-function variable_mc_branch_power(pm::AbstractUBFModels; n_cond::Int=3, nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
-    @assert n_cond<=5
-
+function variable_mc_branch_power(pm::AbstractUBFModels; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     # calculate S bound
     branch_arcs = ref(pm, nw, :arcs)
+    connections = Dict((l,i,j) => connections for (bus,entry) in ref(pm, nw, :bus_arcs_conns_branch) for ((l,i,j), connections) in entry)
+
     if bounded
-        bound = Dict{eltype(branch_arcs), Array{Real,2}}()
+        bound = Dict{eltype(branch_arcs), Matrix{Real}}()
         for (br, branch) in ref(pm, nw, :branch)
             bus_fr = ref(pm, nw, :bus, branch["f_bus"])
             bus_to = ref(pm, nw, :bus, branch["t_bus"])
@@ -119,20 +116,18 @@ function variable_mc_branch_power(pm::AbstractUBFModels; n_cond::Int=3, nw::Int=
             tuple_fr = (br, bus_fr["index"], bus_to["index"])
             tuple_to = (br, bus_to["index"], bus_fr["index"])
 
-            bound[tuple_fr] = bus_fr["vmax"].*cmax_fr'
-            bound[tuple_to] = bus_to["vmax"].*cmax_to'
+            bound[tuple_fr] = bus_fr["vmax"][[findfirst(isequal(c), bus_fr["terminals"]) for c in branch["f_connections"]]].*cmax_fr'
+            bound[tuple_to] = bus_to["vmax"][[findfirst(isequal(c), bus_to["terminals"]) for c in branch["t_connections"]]].*cmax_to'
 
-            for c in 1:length(smax_fr)
-                bound[tuple_fr][c,c] = smax_fr[c]
-                bound[tuple_to][c,c] = smax_to[c]
+            for (idx, (fc,tc)) in enumerate(zip(branch["f_connections"], branch["t_connections"]))
+                bound[tuple_fr][idx,idx] = smax_fr[idx]
+                bound[tuple_to][idx,idx] = smax_to[idx]
             end
         end
         # create matrix variables
-        (P,Q) = variable_mx_complex(pm.model, branch_arcs, n_cond, n_cond;
-            symm_bound=bound, name=("P", "Q"), prefix="$nw")
+        (P,Q) = variable_mx_complex(pm.model, branch_arcs, connections, connections; symm_bound=bound, name=("P", "Q"), prefix="$nw")
     else
-        (P,Q) = variable_mx_complex(pm.model, branch_arcs, n_cond, n_cond;
-            name=("P", "Q"), prefix="$nw")
+        (P,Q) = variable_mx_complex(pm.model, branch_arcs, connections, connections; name=("P", "Q"), prefix="$nw")
     end
     # save reference
     var(pm, nw)[:P] = P
@@ -147,18 +142,24 @@ end
 
 
 "Defines branch flow model power flow equations"
-function constraint_mc_power_losses(pm::AbstractUBFModels, nw::Int, i, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, g_sh_to, b_sh_fr, b_sh_to, tm)
+function constraint_mc_power_losses(pm::AbstractUBFModels, nw::Int, i::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, r::Matrix{<:Real}, x::Matrix{<:Real}, g_sh_fr::Matrix{<:Real}, g_sh_to::Matrix{<:Real}, b_sh_fr::Matrix{<:Real}, b_sh_to::Matrix{<:Real})
+    fr_bus_terminals = ref(pm, nw, :bus, f_bus, "terminals")
+    to_bus_terminals = ref(pm, nw, :bus, t_bus, "terminals")
+
+    f_connections = ref(pm, nw, :branch, i, "f_connections")
+    t_connections = ref(pm, nw, :branch, i, "t_connections")
+
     P_to = var(pm, nw, :P)[t_idx]
     Q_to = var(pm, nw, :Q)[t_idx]
 
     P_fr = var(pm, nw, :P)[f_idx]
     Q_fr = var(pm, nw, :Q)[f_idx]
 
-    Wr_to = var(pm, nw, :Wr)[t_bus]
-    Wr_fr = var(pm, nw, :Wr)[f_bus]
+    Wr_to = var(pm, nw, :Wr)[t_bus][[findfirst(isequal(fc), to_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), to_bus_terminals) for tc in t_connections]]
+    Wr_fr = var(pm, nw, :Wr)[f_bus][[findfirst(isequal(fc), fr_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), fr_bus_terminals) for tc in t_connections]]
 
-    Wi_to = var(pm, nw, :Wi)[t_bus]
-    Wi_fr = var(pm, nw, :Wi)[f_bus]
+    Wi_to = var(pm, nw, :Wi)[t_bus][[findfirst(isequal(fc), to_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), to_bus_terminals) for tc in t_connections]]
+    Wi_fr = var(pm, nw, :Wi)[f_bus][[findfirst(isequal(fc), fr_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), fr_bus_terminals) for tc in t_connections]]
 
     CCr =  var(pm, nw, :CCr)[i]
     CCi =  var(pm, nw, :CCi)[i]
@@ -169,8 +170,8 @@ end
 
 
 ""
-function constraint_mc_theta_ref(pm::AbstractUBFModels, nw::Int, i::Int, va_ref)
-    nconductors = length(conductor_ids(pm))
+function constraint_mc_theta_ref(pm::AbstractUBFModels, nw::Int, i::Int, va_ref::Vector{<:Real})
+    nconductors = length(va_ref)
 
     Wr = var(pm, nw, :Wr)[i]
     Wi = var(pm, nw, :Wi)[i]
@@ -188,11 +189,17 @@ end
 
 "Defines voltage drop over a branch, linking from and to side voltage"
 function constraint_mc_model_voltage_magnitude_difference(pm::AbstractUBFModels, nw::Int, i::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, r::Matrix{<:Real}, x::Matrix{<:Real}, g_sh_fr::Matrix{<:Real}, b_sh_fr::Matrix{<:Real})
-    Wr_fr = var(pm, nw, :Wr)[f_bus]
-    Wi_fr = var(pm, nw, :Wi)[f_bus]
+    fr_bus_terminals = ref(pm, nw, :bus, f_bus, "terminals")
+    to_bus_terminals = ref(pm, nw, :bus, t_bus, "terminals")
 
-    Wr_to = var(pm, nw, :Wr)[t_bus]
-    Wi_to = var(pm, nw, :Wi)[t_bus]
+    f_connections = ref(pm, nw, :branch, i, "f_connections")
+    t_connections = ref(pm, nw, :branch, i, "t_connections")
+
+    Wr_fr = var(pm, nw, :Wr)[f_bus][[findfirst(isequal(fc), fr_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), fr_bus_terminals) for tc in t_connections]]
+    Wi_fr = var(pm, nw, :Wi)[f_bus][[findfirst(isequal(fc), fr_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), fr_bus_terminals) for tc in t_connections]]
+
+    Wr_to = var(pm, nw, :Wr)[t_bus][[findfirst(isequal(fc), to_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), to_bus_terminals) for tc in t_connections]]
+    Wi_to = var(pm, nw, :Wi)[t_bus][[findfirst(isequal(fc), to_bus_terminals) for fc in f_connections],[findfirst(isequal(tc), to_bus_terminals) for tc in t_connections]]
 
     p_fr = var(pm, nw, :P)[f_idx]
     q_fr = var(pm, nw, :Q)[f_idx]
@@ -222,7 +229,7 @@ power variable.
 """
 function variable_mc_generator_power(pm::SDPUBFKCLMXModel; kwargs...)
     variable_mc_generator_current(pm; kwargs...)
-    variable_mc_generator_power(pm; kwargs...)
+    variable_mc_generator_power_mx(pm; kwargs...)
 end
 
 
@@ -230,46 +237,44 @@ end
 For the matrix KCL formulation, the generator needs an explicit power
 variable.
 """
-function variable_mc_generator_power(pm::SDPUBFKCLMXModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_generator_power_mx(pm::SDPUBFKCLMXModel; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
 
     gen_ids = collect(ids(pm, nw, :gen))
-    ncnds = length(conductor_ids(pm, nw))
+    connections = Dict{Int,Vector{Int}}(id => gen["connections"] for (id,gen) in ref(pm, nw, :gen))
 
     # calculate bounds for matrix variable
-    Pg_min = Dict{eltype(gen_ids), Array{Real,2}}()
-    Pg_max = Dict{eltype(gen_ids), Array{Real,2}}()
-    Qg_min = Dict{eltype(gen_ids), Array{Real,2}}()
-    Qg_max = Dict{eltype(gen_ids), Array{Real,2}}()
+    Pg_min = Dict{eltype(gen_ids), Matrix{Real}}()
+    Pg_max = Dict{eltype(gen_ids), Matrix{Real}}()
+    Qg_min = Dict{eltype(gen_ids), Matrix{Real}}()
+    Qg_max = Dict{eltype(gen_ids), Matrix{Real}}()
     for (id, gen) in ref(pm, nw, :gen)
+        ncnds = length(connections[id])
+
         bus = ref(pm, nw, :bus, gen["gen_bus"])
-        vmax = get(bus, "vmax", fill(Inf, 3))
+        vmax = haskey(bus, "vmax") ? bus["vmax"][[findfirst(isequal(c), bus["terminals"]) for c in connections[id]]] : fill(Inf, ncnds)
         cmax = _calc_gen_current_max(gen, bus)
         S_bound = _mat_mult_rm_nan(vmax, cmax')
 
         Pg_min[id] = Qg_min[id] = -S_bound
         Pg_max[id] = Qg_max[id] =  S_bound
 
-        pmin = get(gen, "pmin", fill(-Inf, 3))
-        pmax = get(gen, "pmax", fill( Inf, 3))
-        qmin = get(gen, "qmin", fill(-Inf, 3))
-        qmax = get(gen, "qmax", fill( Inf, 3))
+        pmin = get(gen, "pmin", fill(-Inf, ncnds))
+        pmax = get(gen, "pmax", fill( Inf, ncnds))
+        qmin = get(gen, "qmin", fill(-Inf, ncnds))
+        qmax = get(gen, "qmax", fill( Inf, ncnds))
 
-        for c in 1:3
-            Pg_min[id][c,c] = max(pmin[c], Pg_min[id][c,c])
-            Pg_max[id][c,c] = min(pmax[c], Pg_max[id][c,c])
-            Qg_min[id][c,c] = max(qmin[c], Qg_min[id][c,c])
-            Qg_max[id][c,c] = min(qmax[c], Qg_max[id][c,c])
+        for (idx,c) in enumerate(connections[id])
+            Pg_min[id][idx,idx] = max(pmin[idx], Pg_min[id][idx,idx])
+            Pg_max[id][idx,idx] = min(pmax[idx], Pg_max[id][idx,idx])
+            Qg_min[id][idx,idx] = max(qmin[idx], Qg_min[id][idx,idx])
+            Qg_max[id][idx,idx] = min(qmax[idx], Qg_max[id][idx,idx])
         end
     end
 
     # create matrix variables
-    Pg = variable_mx_real(pm.model, gen_ids, ncnds, ncnds;
-        lower_bound=Pg_min, upper_bound=Pg_max,
-        name="Pg", prefix="$nw")
-    Qg = variable_mx_real(pm.model, gen_ids, ncnds, ncnds;
-        lower_bound=Qg_min, upper_bound=Qg_max,
-        name="Qg", prefix="$nw")
+    Pg = variable_mx_real(pm.model, gen_ids, connections, connections; lower_bound=Pg_min, upper_bound=Pg_max, name="Pg", prefix="$nw")
+    Qg = variable_mx_real(pm.model, gen_ids, connections, connections; lower_bound=Qg_min, upper_bound=Qg_max, name="Qg", prefix="$nw")
 
     # save references
     var(pm, nw)[:Pg_bus] = Pg
@@ -290,16 +295,16 @@ function variable_mc_generator_current(pm::AbstractUBFModels; nw::Int=pm.cnw, bo
     @assert(bounded)
 
     gen_ids = collect(ids(pm, nw, :gen))
-    ncnds = Dict(i => length(bus["terminals"]) for (i,bus) in ref(pm, nw, :bus))
+    connections = Dict{Int,Vector{Int}}(i => gen["connections"] for (i,gen) in ref(pm, nw, :gen))
     # calculate bounds
-    bound = Dict{eltype(gen_ids), Array{Real,2}}()
+    bound = Dict{eltype(gen_ids), Matrix{Real}}()
     for (id, gen) in ref(pm, nw, :gen)
         bus = ref(pm, nw, :bus, gen["gen_bus"])
         cmax = _calc_gen_current_max(gen, bus)
         bound[id] = cmax*cmax'
     end
     # create matrix variables
-    (CCgr,CCgi) = variable_mx_hermitian(pm.model, gen_ids, ncnds; symm_bound=bound, name="CCg", prefix="$nw")
+    (CCgr,CCgi) = variable_mx_hermitian(pm.model, gen_ids, connections; symm_bound=bound, name="CCg", prefix="$nw")
     # save references
     var(pm, nw)[:CCgr] = CCgr
     var(pm, nw)[:CCgi] = CCgi
@@ -350,7 +355,7 @@ Delta loads only need a current variable and auxilary power variable (X), and
 all other load model variables are then linear transformations of these
 (linear Expressions).
 """
-function variable_mc_load_power(pm::SDPUBFKCLMXModel; nw=pm.cnw)
+function variable_mc_load_power(pm::SDPUBFKCLMXModel; nw::Int=pm.cnw)
     load_wye_ids = [id for (id, load) in ref(pm, nw, :load) if load["configuration"]==WYE]
     load_del_ids = [id for (id, load) in ref(pm, nw, :load) if load["configuration"]==DELTA]
     load_cone_ids = [id for (id, load) in ref(pm, nw, :load) if _check_load_needs_cone(load)]
@@ -374,7 +379,7 @@ These variables reflect the power consumed by the load, NOT the power injected
 into the bus nodes; these variables only coincide for wye-connected loads
 with a grounded neutral.
 """
-function variable_mc_load_power(pm::AbstractUBFModels, load_ids::Vector{Int}; nw=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_load_power(pm::AbstractUBFModels, load_ids::Vector{Int}; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
     # calculate bounds for all loads
     pmin = Dict()
@@ -388,14 +393,14 @@ function variable_mc_load_power(pm::AbstractUBFModels, load_ids::Vector{Int}; nw
     end
 
     # create variables
-    ncnds = length(conductor_ids(pm, nw))
+    connections = Dict(i => load["connections"] for (i,load) in ref(pm, nw, :load))
 
     pd = Dict(i => JuMP.@variable(pm.model,
-        [c in 1:ncnds], base_name="$(nw)_pd_$(i)"
+        [c in 1:length(connections[i])], base_name="$(nw)_pd_$(i)"
         ) for i in load_ids
     )
     qd = Dict(i => JuMP.@variable(pm.model,
-        [c in 1:ncnds], base_name="$(nw)_qd_$(i)"
+        [c in 1:length(connections[i])], base_name="$(nw)_qd_$(i)"
         ) for i in load_ids
     )
 
@@ -428,20 +433,20 @@ grounded wye-connected loads, this is the same as the power consumed by the
 multi-phase load. The off-diagonals only need to be created for the matrix KCL
 formulation.
 """
-function variable_mc_load_power_bus(pm::SDPUBFKCLMXModel, load_ids::Vector{Int}; nw=pm.cnw, bounded::Bool=true, report::Bool=true)
+function variable_mc_load_power_bus(pm::SDPUBFKCLMXModel, load_ids::Vector{Int}; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
-    ncnds = Dict{Int,Int}(i => length(load["connections"]) for (i,load) in ref(pm, nw, :load))
+    connections = Dict{Int,Vector{Int}}(i => load["connections"] for (i,load) in ref(pm, nw, :load))
     # calculate bounds
-    bound = Dict{eltype(load_ids), Array{Real,2}}()
+    bound = Dict{eltype(load_ids), Matrix{Real}}()
     for id in load_ids
         load = ref(pm, nw, :load, id)
         @assert(load["configuration"]==WYE)
         bus = ref(pm, nw, :bus, load["load_bus"])
         cmax = _calc_load_current_max(load, bus)
-        bound[id] = bus["vmax"][[findfirst(isequal(c), bus["terminals"]) for c in load["connections"]]]*cmax'
+        bound[id] = bus["vmax"][[findfirst(isequal(c), bus["terminals"]) for c in connections[id]]]*cmax'
     end
     # create matrix variables
-    (Pd_bus,Qd_bus) = variable_mx_complex_with_diag(pm.model, load_ids, ncnds; symm_bound=bound, name=("Pd_bus", "Qd_bus"), prefix="$nw")
+    (Pd_bus,Qd_bus) = variable_mx_complex_with_diag(pm.model, load_ids, connections; symm_bound=bound, name=("Pd_bus", "Qd_bus"), prefix="$nw")
     for id in load_ids
         var(pm, nw, :Pd_bus)[id] = Pd_bus[id]
         var(pm, nw, :Qd_bus)[id] = Qd_bus[id]
@@ -469,21 +474,20 @@ See the paper by Zhao et al. for the first convex relaxation of delta transforma
 
 See upcoming paper for discussion of bounds. [reference added when accepted]
 """
-function variable_mc_load_power_delta_aux(pm::AbstractUBFModels, load_ids::Vector{Int}; nw=pm.cnw, eps=0.1, bounded::Bool=true, report::Bool=true)
+function variable_mc_load_power_delta_aux(pm::AbstractUBFModels, load_ids::Vector{Int}; nw::Int=pm.cnw, eps::Real=0.1, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
-    ncnds = length(conductor_ids(pm, nw))
+    connections = Dict{Int,Vector{Int}}(id => load["connections"] for (id,load) in ref(pm, nw, :load))
     # calculate bounds
-    bound = Dict{eltype(load_ids), Array{Real,2}}()
+    bound = Dict{eltype(load_ids), Matrix{Real}}()
     for id in load_ids
         load = ref(pm, nw, :load, id)
         bus_id = load["load_bus"]
         bus = ref(pm, nw, :bus, bus_id)
         cmax = _calc_load_current_max(load, bus)
-        bound[id] = bus["vmax"]*cmax'
+        bound[id] = bus["vmax"][[findfirst(isequal(c), bus["terminals"]) for c in connections[id]]]*cmax'
     end
     # create matrix variables
-    (Xdr,Xdi) = variable_mx_complex(pm.model, load_ids, ncnds, ncnds;
-        symm_bound=bound, name="Xd", prefix="$nw")
+    (Xdr,Xdi) = variable_mx_complex(pm.model, load_ids, connections, connections; symm_bound=bound, name="Xd", prefix="$nw")
     # save references
     var(pm, nw)[:Xdr] = Xdr
     var(pm, nw)[:Xdi] = Xdi
@@ -501,18 +505,18 @@ frame.
 function variable_mc_load_current(pm::AbstractUBFModels, load_ids::Vector{Int}; nw::Int=pm.cnw, bounded::Bool=true, report::Bool=true)
     @assert(bounded)
 
-    ncnds = Dict{Int,Int}(i => length(load["connections"]) for (i,load) in ref(pm, nw, :load))
+    connections = Dict{Int,Vector{Int}}(i => load["connections"] for (i,load) in ref(pm, nw, :load))
+
     # calculate bounds
-    cmin = Dict{eltype(load_ids), Array{Real,1}}()
-    cmax = Dict{eltype(load_ids), Array{Real,1}}()
+    cmin = Dict{eltype(load_ids), Vector{Real}}()
+    cmax = Dict{eltype(load_ids), Vector{Real}}()
     for (id, load) in ref(pm, nw, :load)
         bus_id = load["load_bus"]
         bus = ref(pm, nw, :bus, bus_id)
         cmin[id], cmax[id] = _calc_load_current_magnitude_bounds(load, bus)
     end
     # create matrix variables
-    (CCdr, CCdi) = variable_mx_hermitian(pm.model, load_ids, ncnds;
-        sqrt_upper_bound=cmax, sqrt_lower_bound=cmin, name="CCd", prefix="$nw")
+    (CCdr, CCdi) = variable_mx_hermitian(pm.model, load_ids, connections; sqrt_upper_bound=cmax, sqrt_lower_bound=cmin, name="CCd", prefix="$nw")
     # save references
     var(pm, nw)[:CCdr] = CCdr
     var(pm, nw)[:CCdi] = CCdi
@@ -527,11 +531,13 @@ Link the current and power withdrawn by a generator at the bus through a PSD
 constraint. The rank-1 constraint is dropped in this formulation.
 """
 function constraint_mc_generator_power(pm::SDPUBFKCLMXModel, gen_id::Int; nw::Int=pm.cnw)
+    bus_id = ref(pm, nw, :gen, gen_id, "gen_bus")
+    connections = ref(pm, nw, :gen, gen_id, "connections")
+    terminals = ref(pm, nw, :bus, bus_id, "terminals")
     Pg = var(pm, nw, :Pg_bus, gen_id)
     Qg = var(pm, nw, :Qg_bus, gen_id)
-    bus_id = ref(pm, nw, :gen, gen_id)["gen_bus"]
-    Wr = var(pm, nw, :Wr, bus_id)
-    Wi = var(pm, nw, :Wi, bus_id)
+    Wr = var(pm, nw, :Wr, bus_id)[[findfirst(isequal(c), terminals) for c in connections],[findfirst(isequal(c), terminals) for c in connections]]
+    Wi = var(pm, nw, :Wi, bus_id)[[findfirst(isequal(c), terminals) for c in connections],[findfirst(isequal(c), terminals) for c in connections]]
     CCgr = var(pm, nw, :CCgr, gen_id)
     CCgi = var(pm, nw, :CCgi, gen_id)
     constraint_SWL_psd(pm.model, Pg, Qg, Wr, Wi, CCgr, CCgi)
@@ -544,7 +550,7 @@ power consumed in each phase, s=p+jq. This is completely symmetrical for p and
 q, with appropriate substitutions of the variables and parameters:
 p->q, a->b, alpha->beta, pmin->qmin, pmax->qmax
 """
-function constraint_pqw(model::JuMP.Model, w, p, a::Real, alpha::Real, wmin::Real, wmax::Real, pmin::Real, pmax::Real)
+function constraint_pqw(model::JuMP.Model, w::JuMP.VariableRef, p::JuMP.VariableRef, a::Real, alpha::Real, wmin::Real, wmax::Real, pmin::Real, pmax::Real)
     if a==0
         JuMP.@constraint(model, p==0)
     else
@@ -612,7 +618,7 @@ function constraint_mc_load_power(pm::AbstractUBFModels, load_id::Int; nw::Int=p
     qd0 = load["qd"]
     bus_id = load["load_bus"]
     bus = ref(pm, nw, :bus, bus_id)
-    ncnds = length(pd0)
+    terminals = bus["terminals"]
 
     # calculate load params
     a, alpha, b, beta = _load_expmodel_params(load, bus)
@@ -627,17 +633,17 @@ function constraint_mc_load_power(pm::AbstractUBFModels, load_id::Int; nw::Int=p
             var(pm, nw, :pd)[load_id] = JuMP.Containers.DenseAxisArray(pd0, connections)
             var(pm, nw, :qd)[load_id] = JuMP.Containers.DenseAxisArray(qd0, connections)
         elseif load["model"]==IMPEDANCE
-            w = var(pm, nw, :w)[bus_id]
+            w = var(pm, nw, :w)[bus_id][[findfirst(isequal(c), terminals) for c in connections]]
             var(pm, nw, :pd)[load_id] = a.*w
             var(pm, nw, :qd)[load_id] = b.*w
         # in this case, :pd has a JuMP variable
         else
-            Wr = var(pm, nw, :Wr, bus_id)
+            Wr = var(pm, nw, :Wr, bus_id)[[findfirst(isequal(c), terminals) for c in connections],[findfirst(isequal(c), terminals) for c in connections]]
             pd = var(pm, nw, :pd)[load_id]
             qd = var(pm, nw, :qd)[load_id]
             for (idx, c) in enumerate(load["connections"])
-                constraint_pqw(pm.model, Wr[c,c], pd[c], a[idx], alpha[idx], wmin[idx], wmax[idx], pmin[idx], pmax[idx])
-                constraint_pqw(pm.model, Wr[c,c], qd[c], b[idx], beta[idx], wmin[idx], wmax[idx], qmin[idx], qmax[idx])
+                constraint_pqw(pm.model, Wr[idx,idx], pd[idx], a[idx], alpha[idx], wmin[idx], wmax[idx], pmin[idx], pmax[idx])
+                constraint_pqw(pm.model, Wr[idx,idx], qd[idx], b[idx], beta[idx], wmin[idx], wmax[idx], qmin[idx], qmax[idx])
             end
         end
         # :pd_bus is identical to :pd now
@@ -653,13 +659,13 @@ function constraint_mc_load_power(pm::AbstractUBFModels, load_id::Int; nw::Int=p
         end
     elseif load["configuration"]==DELTA
         # link Wy, CCd and X
-        Wr = var(pm, nw, :Wr, bus_id)
-        Wi = var(pm, nw, :Wi, bus_id)
+        Wr = var(pm, nw, :Wr, bus_id)[[findfirst(isequal(c), terminals) for c in connections],[findfirst(isequal(c), terminals) for c in connections]]
+        Wi = var(pm, nw, :Wi, bus_id)[[findfirst(isequal(c), terminals) for c in connections],[findfirst(isequal(c), terminals) for c in connections]]
         CCdr = var(pm, nw, :CCdr, load_id)
         CCdi = var(pm, nw, :CCdi, load_id)
         Xdr = var(pm, nw, :Xdr, load_id)
         Xdi = var(pm, nw, :Xdi, load_id)
-        Td = [1 -1 0; 0 1 -1; -1 0 1]
+        Td = [1 -1 0; 0 1 -1; -1 0 1]  # TODO
         constraint_SWL_psd(pm.model, Xdr, Xdi, Wr, Wi, CCdr, CCdi)
         # define pd/qd and pd_bus/qd_bus as affine transformations of X
         pd_bus = LinearAlgebra.diag(Xdr*Td)
@@ -675,19 +681,19 @@ function constraint_mc_load_power(pm::AbstractUBFModels, load_id::Int; nw::Int=p
         # |Vd|^2 is a linear transformation of Wr
         wd = LinearAlgebra.diag(Td*Wr*Td')
         if load["model"]==POWER
-            for c in 1:ncnds
-                JuMP.@constraint(pm.model, pd[c]==pd0[c])
-                JuMP.@constraint(pm.model, qd[c]==qd0[c])
+            for (idx, c) in enumerate(connections)
+                JuMP.@constraint(pm.model, pd[idx]==pd0[idx])
+                JuMP.@constraint(pm.model, qd[idx]==qd0[idx])
             end
         elseif load["model"]==IMPEDANCE
-            for c in 1:ncnds
-                JuMP.@constraint(pm.model, pd[c]==a[c]*wd[c])
-                JuMP.@constraint(pm.model, qd[c]==b[c]*wd[c])
+            for (idx,idx) in enumerate(connections)
+                JuMP.@constraint(pm.model, pd[idx]==a[idx]*wd[idx])
+                JuMP.@constraint(pm.model, qd[idx]==b[idx]*wd[idx])
             end
         else
-            for c in 1:ncnds
-                constraint_pqw(pm.model, wd[c], pd[c], a[c], alpha[c], wmin[c], wmax[c], pmin[c], pmax[c])
-                constraint_pqw(pm.model, wd[c], qd[c], b[c], beta[c],  wmin[c], wmax[c], qmin[c], qmax[c])
+            for (idx,c) in enumerate(connections)
+                constraint_pqw(pm.model, wd[idx], pd[idx], a[idx], alpha[idx], wmin[idx], wmax[idx], pmin[idx], pmax[idx])
+                constraint_pqw(pm.model, wd[idx], qd[idx], b[idx], beta[idx],  wmin[idx], wmax[idx], qmin[idx], qmax[idx])
             end
             end
 
@@ -709,11 +715,12 @@ the matrix KCL formulation.
 function constraint_mc_load_power(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm.cnw, report::Bool=true)
     # shared variables and parameters
     load = ref(pm, nw, :load, load_id)
+    connections = load["connections"]
     pd0 = load["pd"]
     qd0 = load["qd"]
     bus_id = load["load_bus"]
     bus = ref(pm, nw, :bus, bus_id)
-    ncnds = length(pd0)
+    terminals = bus["terminals"]
 
     # calculate load params
     a, alpha, b, beta = _load_expmodel_params(load, bus)
@@ -723,8 +730,8 @@ function constraint_mc_load_power(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm
     pmin, pmax, qmin, qmax = _calc_load_pq_bounds(load, bus)
 
     # take care of connections
-    Wr = var(pm, nw, :Wr, bus_id)
-    Wi = var(pm, nw, :Wi, bus_id)
+    Wr = var(pm, nw, :Wr, bus_id)[[findfirst(isequal(c), terminals) for c in connections],[findfirst(isequal(c), terminals) for c in connections]]
+    Wi = var(pm, nw, :Wi, bus_id)[[findfirst(isequal(c), terminals) for c in connections],[findfirst(isequal(c), terminals) for c in connections]]
     CCdr = var(pm, nw, :CCdr, load_id)
     CCdi = var(pm, nw, :CCdi, load_id)
 
@@ -733,33 +740,30 @@ function constraint_mc_load_power(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm
             var(pm, nw, :pd)[load_id] = pd0
             var(pm, nw, :qd)[load_id] = qd0
         elseif load["model"]==IMPEDANCE
-            w = var(pm, nw, :w, bus_id)
-            # for c in 1:ncnds
+            w = var(pm, nw, :w, bus_id)[[findfirst(isequal(c), terminals) for c in connections]]
             var(pm, nw, :pd)[load_id] = a.*w
             var(pm, nw, :qd)[load_id] = b.*w
-            # end
-        # in this case, :pd has a JuMP variable
         else
             pd = var(pm, nw, :pd)[load_id]
             qd = var(pm, nw, :qd)[load_id]
-            for c in 1:ncnds
-                constraint_pqw(pm.model, Wr[c,c], pd[c], a[c], alpha[c], wmin[c], wmax[c], pmin[c], pmax[c])
-                constraint_pqw(pm.model, Wr[c,c], qd[c], b[c], beta[c], wmin[c], wmax[c], qmin[c], qmax[c])
+            for (idx, c) in enumerate(connections)
+                constraint_pqw(pm.model, Wr[idx,idx], pd[idx], a[idx], alpha[idx], wmin[idx], wmax[idx], pmin[idx], pmax[idx])
+                constraint_pqw(pm.model, Wr[idx,idx], qd[idx], b[idx], beta[idx], wmin[idx], wmax[idx], qmin[idx], qmax[idx])
             end
         end
         # diagonal of :Pd is identical to :pd now
         Pd_bus = var(pm, nw, :Pd_bus)[load_id]
         Qd_bus = var(pm, nw, :Qd_bus)[load_id]
-        for c in 1:ncnds
-            Pd_bus[c,c] = var(pm, nw, :pd)[load_id][c]
-            Qd_bus[c,c] = var(pm, nw, :qd)[load_id][c]
+        for (idx,c) in enumerate(connections)
+            Pd_bus[idx,idx] = var(pm, nw, :pd)[load_id][idx]
+            Qd_bus[idx,idx] = var(pm, nw, :qd)[load_id][idx]
         end
 
     elseif load["configuration"]==DELTA
         # link Wy, CCd and X
         Xdr = var(pm, nw, :Xdr, load_id)
         Xdi = var(pm, nw, :Xdi, load_id)
-        Td = [1 -1 0; 0 1 -1; -1 0 1]
+        Td = [1 -1 0; 0 1 -1; -1 0 1]  # TODO
         constraint_SWL_psd(pm.model, Xdr, Xdi, Wr, Wi, CCdr, CCdi)
         # define pd_bus/qd_bus and pd/qd as affine transformations of X
         Pd_bus = Xdr*Td
@@ -775,19 +779,19 @@ function constraint_mc_load_power(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm
         # |Vd|^2 is a linear transformation of Wr
         wd = LinearAlgebra.diag(Td*Wr*Td')
         if load["model"]==POWER
-            for c in 1:ncnds
-                JuMP.@constraint(pm.model, pd[c]==pd0[c])
-                JuMP.@constraint(pm.model, qd[c]==qd0[c])
+            for (idx,c) in enumerate(connections)
+                JuMP.@constraint(pm.model, pd[idx]==pd0[idx])
+                JuMP.@constraint(pm.model, qd[idx]==qd0[idx])
             end
         elseif load["model"]==IMPEDANCE
-            for c in 1:ncnds
-                JuMP.@constraint(pm.model, pd[c]==a[c]*wd[c])
-                JuMP.@constraint(pm.model, qd[c]==b[c]*wd[c])
+            for (idx,c) in enumerate(connections)
+                JuMP.@constraint(pm.model, pd[idx]==a[idx]*wd[idx])
+                JuMP.@constraint(pm.model, qd[idx]==b[idx]*wd[idx])
             end
         else
-            for c in 1:ncnds
-                constraint_pqw(pm.model, wd[c], pd[c], a[c], alpha[c], wmin[c], wmax[c], pmin[c], pmax[c])
-                constraint_pqw(pm.model, wd[c], qd[c], b[c], beta[c], wmin[c], wmax[c], qmin[c], qmax[c])
+            for (idx,c) in enumerate(connections)
+                constraint_pqw(pm.model, wd[idx], pd[idx], a[idx], alpha[idx], wmin[idx], wmax[idx], pmin[idx], pmax[idx])
+                constraint_pqw(pm.model, wd[idx], qd[idx], b[idx], beta[idx], wmin[idx], wmax[idx], qmin[idx], qmax[idx])
             end
         end
     end
@@ -841,30 +845,39 @@ function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, terminals
 
     Gt, Bt = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
 
-    cstr_p = JuMP.@constraint(pm.model,
-          sum(P[a] for (a, conns) in bus_arcs)
-        # + sum(Psw[a_sw] for (a_sw, conns) in bus_arcs_sw)
-        # + sum(Pt[a_trans] for (a_trans, conns) in bus_arcs_trans)
-        .==
-          sum(Pg[g] for (g, conns) in bus_gens)
-        # - sum(ps[s] for (s, conns) in bus_storage)
-        - sum(Pd[d] for (d, conns) in bus_loads)
-        - diag(Wr*Gt'+Wi*Bt')
-    )
+    cstr_p = []
+    cstr_q = []
 
-    cstr_q = JuMP.@constraint(pm.model,
-          sum(Q[a] for (a, conns) in bus_arcs)
-        # + sum(diag(Qsw[a_sw]) for (a_sw, conns) in bus_arcs_sw)
-        # + sum(diag(Qt[a_trans]) for (a_trans, conns) in bus_arcs_trans)
-        .==
-          sum(Qg[g] for (g, conns) in bus_gens)
-        # - sum(qs[s] for (s, conns) in bus_storage)
-        - sum(Qd[d] for (d, conns) in bus_loads)
-        - diag(-Wr*Bt'+Wi*Gt')
-    )
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
-    con(pm, nw, :lam_kcl_r)[i] = isa(cstr_p, Array) ? cstr_p : [cstr_p]
-    con(pm, nw, :lam_kcl_i)[i] = isa(cstr_q, Array) ? cstr_q : [cstr_q]
+    for (idx, t) in ungrounded_terminals
+        for (jdx, u) in ungrounded_terminals
+            cp = JuMP.@constraint(pm.model,
+                  sum(       P[a][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a, conns) in bus_arcs if t in conns && u in conns)
+                + sum(  Psw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
+                + sum(Pt[a_trans][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns && u in conns)
+                ==
+                sum(        Pg[g][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (g, conns) in bus_gens if t in conns && u in conns)
+                - sum(      Pd[d][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (d, conns) in bus_loads if t in conns && u in conns)
+                - diag(Wr*Gt'+Wi*Bt')[idx]
+            )
+            push!(cstr_p, cp)
+
+            cq = JuMP.@constraint(pm.model,
+                  sum(       Q[a][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a, conns) in bus_arcs if t in conns && u in conns)
+                + sum(  Qsw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
+                + sum(Qt[a_trans][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns && u in conns)
+                ==
+                  sum(      Qg[g][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (g, conns) in bus_gens if t in conns && u in conns)
+                - sum(      Qd[d][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (d, conns) in bus_loads if t in conns && u in conns)
+                - diag(-Wr*Bt'+Wi*Gt')[idx]
+            )
+            push!(cstr_q, cq)
+        end
+    end
+
+    con(pm, nw, :lam_kcl_r)[i] = cstr_p
+    con(pm, nw, :lam_kcl_i)[i] = cstr_q
 
     if _IM.report_duals(pm)
         sol(pm, nw, :bus, i)[:lam_kcl_r] = cstr_p

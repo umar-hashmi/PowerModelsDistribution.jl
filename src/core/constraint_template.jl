@@ -109,9 +109,7 @@ function constraint_mc_power_losses(pm::_PM.AbstractPowerModel, i::Int; nw::Int=
     b_sh_fr = branch["b_fr"]
     b_sh_to = branch["b_to"]
 
-    tm = [1, 1, 1] #TODO
-
-    constraint_mc_power_losses(pm, nw, i, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, g_sh_to, b_sh_fr, b_sh_to, tm)
+    constraint_mc_power_losses(pm, nw, i, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, g_sh_to, b_sh_fr, b_sh_to)
 end
 
 

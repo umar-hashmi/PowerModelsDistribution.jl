@@ -25,7 +25,7 @@ end
 
 
 "Defines branch flow model power flow equations"
-function constraint_mc_power_losses(pm::LPUBFDiagModel, nw::Int, i::Int, f_bus, t_bus, f_idx, t_idx, r, x, g_sh_fr, g_sh_to, b_sh_fr, b_sh_to, tm)
+function constraint_mc_power_losses(pm::LPUBFDiagModel, nw::Int, i::Int, f_bus::Int, t_bus::Int, f_idx::Tuple{Int,Int,Int}, t_idx::Tuple{Int,Int,Int}, r::Matrix{<:Real}, x::Matrix{<:Real}, g_sh_fr::Matrix{<:Real}, g_sh_to::Matrix{<:Real}, b_sh_fr::Matrix{<:Real}, b_sh_to::Matrix{<:Real})
     p_fr = var(pm, nw, :p)[f_idx]
     q_fr = var(pm, nw, :q)[f_idx]
 
@@ -89,18 +89,19 @@ end
 ""
 function constraint_mc_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, terminals::Vector{Int}, grounded::Vector{Bool}, bus_arcs::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_sw::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_arcs_trans::Vector{Tuple{Tuple{Int,Int,Int},Vector{Int}}}, bus_gens::Vector{Tuple{Int,Vector{Int}}}, bus_storage::Vector{Tuple{Int,Vector{Int}}}, bus_loads::Vector{Tuple{Int,Vector{Int}}}, bus_shunts::Vector{Tuple{Int,Vector{Int}}})
     w = var(pm, nw, :w, i)
-    p   = get(var(pm, nw), :p,   Dict()); _PM._check_var_keys(p,   bus_arcs, "active power", "branch")
-    q   = get(var(pm, nw), :q,   Dict()); _PM._check_var_keys(q,   bus_arcs, "reactive power", "branch")
-    psw = get(var(pm, nw), :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
-    qsw = get(var(pm, nw), :qsw, Dict()); _PM._check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
-    pt  = get(var(pm, nw), :pt,  Dict()); _PM._check_var_keys(pt,  bus_arcs_trans, "active power", "transformer")
-    qt  = get(var(pm, nw), :qt,  Dict()); _PM._check_var_keys(qt,  bus_arcs_trans, "reactive power", "transformer")
-    pd  = get(var(pm, nw), :pd,  Dict()); _PM._check_var_keys(pd,  bus_loads, "active power", "load")
-    qd  = get(var(pm, nw), :qd,  Dict()); _PM._check_var_keys(qd,  bus_loads, "reactive power", "load")
-    pg  = get(var(pm, nw), :pg,  Dict()); _PM._check_var_keys(pg,  bus_gens, "active power", "generator")
-    qg  = get(var(pm, nw), :qg,  Dict()); _PM._check_var_keys(qg,  bus_gens, "reactive power", "generator")
-    ps  = get(var(pm, nw), :ps,  Dict()); _PM._check_var_keys(ps,  bus_storage, "active power", "storage")
-    qs  = get(var(pm, nw), :qs,  Dict()); _PM._check_var_keys(qs,  bus_storage, "reactive power", "storage")
+    p   = get(var(pm, nw),      :p,   Dict()); _PM._check_var_keys(p,   bus_arcs, "active power", "branch")
+    q   = get(var(pm, nw),      :q,   Dict()); _PM._check_var_keys(q,   bus_arcs, "reactive power", "branch")
+    psw = get(var(pm, nw),    :psw, Dict()); _PM._check_var_keys(psw, bus_arcs_sw, "active power", "switch")
+    qsw = get(var(pm, nw),    :qsw, Dict()); _PM._check_var_keys(qsw, bus_arcs_sw, "reactive power", "switch")
+    pt  = get(var(pm, nw),     :pt,  Dict()); _PM._check_var_keys(pt,  bus_arcs_trans, "active power", "transformer")
+    qt  = get(var(pm, nw),     :qt,  Dict()); _PM._check_var_keys(qt,  bus_arcs_trans, "reactive power", "transformer")
+    pg  = get(var(pm, nw),     :pg,  Dict()); _PM._check_var_keys(pg,  bus_gens, "active power", "generator")
+    qg  = get(var(pm, nw),     :qg,  Dict()); _PM._check_var_keys(qg,  bus_gens, "reactive power", "generator")
+    ps  = get(var(pm, nw),     :ps,  Dict()); _PM._check_var_keys(ps,  bus_storage, "active power", "storage")
+    qs  = get(var(pm, nw),     :qs,  Dict()); _PM._check_var_keys(qs,  bus_storage, "reactive power", "storage")
+    pd  = get(var(pm, nw), :pd_bus,  Dict()); _PM._check_var_keys(pd,  bus_loads, "active power", "load")
+    qd  = get(var(pm, nw), :qd_bus,  Dict()); _PM._check_var_keys(qd,  bus_loads, "reactive power", "load")
+
 
     cstr_p = []
     cstr_q = []
@@ -112,11 +113,12 @@ function constraint_mc_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, termin
               sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
             + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
             + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+            - sum( pg[g][t] for (g, conns) in bus_gens if t in conns)
+            + sum( ps[s][t] for (s, conns) in bus_storage if t in conns)
+            + sum( pd[d][t] for (d, conns) in bus_loads if t in conns)
+            + sum(diag(ref(pm, nw, :shunt, sh, "gs"))[findfirst(isequal(t), conns)]*w[t] for (sh, conns) in bus_shunts if t in conns)
             ==
-              sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
-            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
-            - sum(pd[d][t] for (d, conns) in bus_loads if t in conns)
-            - sum(ref(pm, nw, :shunt, sh)["gs"][findfirst(isequal(t), conns)]*w[t] for (sh, conns) in bus_shunts if t in conns)
+            0.0
         )
         push!(cstr_p, cp)
 
@@ -124,11 +126,12 @@ function constraint_mc_power_balance(pm::LPUBFDiagModel, nw::Int, i::Int, termin
               sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
             + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
             + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+            - sum( qg[g][t] for (g, conns) in bus_gens if t in conns)
+            + sum( qs[s][t] for (s, conns) in bus_storage if t in conns)
+            + sum( qd[d][t] for (d, conns) in bus_loads if t in conns)
+            - sum(diag(ref(pm, nw, :shunt, sh, "bs"))[findfirst(isequal(t), conns)]*w[t] for (sh, conns) in bus_shunts if t in conns)
             ==
-              sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
-            - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
-            - sum(qd[d][t] for (d, conns) in bus_loads if t in conns)
-            + sum(ref(pm, nw, :shunt, sh)["bs"][findfirst(isequal(t), conns)]*w[t] for (sh, conns) in bus_shunts if t in conns)
+            0.0
         )
         push!(cstr_q, cq)
    end

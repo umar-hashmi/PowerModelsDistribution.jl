@@ -175,30 +175,39 @@ function constraint_mc_power_balance(pm::_PM.AbstractWModels, nw::Int, i::Int, t
 
     Gt, Bt = _build_bus_shunt_matrices(pm, nw, terminals, bus_shunts)
 
-    cstr_p = JuMP.@constraint(pm.model,
-        sum(diag(P[a]) for (a, conns) in bus_arcs)
-        + sum(diag(Psw[a_sw]) for (a_sw, conns) in bus_arcs_sw)
-        + sum(diag(Pt[a_trans]) for (a_trans, conns) in bus_arcs_trans)
-        .==
-        sum([pg[g][c] for c in conns] for (g, conns) in bus_gens)
-        - sum([ps[s][c] for c in conns] for (s, conns) in bus_storage)
-        - sum([pd[d][c] for c in conns] for (d, conns) in bus_loads)
-        - diag(Wr*Gt'+Wi*Bt')
-    )
+    cstr_p = []
+    cstr_q = []
 
-    cstr_q = JuMP.@constraint(pm.model,
-        sum(diag(Q[a]) for (a, conns) in bus_arcs)
-        + sum(diag(Qsw[a_sw]) for (a_sw, conns) in bus_arcs_sw)
-        + sum(diag(Qt[a_trans]) for (a_trans, conns) in bus_arcs_trans)
-        .==
-        sum([qg[g][c] for c in conns] for (g, conns) in bus_gens)
-        - sum([qs[s][c] for c in conns] for (s, conns) in bus_storage)
-        - sum([qd[d][c] for c in conns] for (d, conns) in bus_loads)
-        - diag(-Wr*Bt'+Wi*Gt')
-    )
+    ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
-    con(pm, nw, :lam_kcl_r)[i] = isa(cstr_p, Array) ? cstr_p : [cstr_p]
-    con(pm, nw, :lam_kcl_i)[i] = isa(cstr_q, Array) ? cstr_q : [cstr_q]
+    for (idx,t) in ungrounded_terminals
+        cp = JuMP.@constraint(pm.model,
+            sum(diag(P[a])[findfirst(isequal(t), conns)] for (a, conns) in bus_arcs if t in conns)
+            + sum(diag(Psw[a_sw])[findfirst(isequal(t), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(diag(Pt[a_trans])[findfirst(isequal(t), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns)
+            ==
+            sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
+            - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
+            - sum(pd[d][t] for (d, conns) in bus_loads if t in conns)
+            - diag(Wr*Gt'+Wi*Bt')[idx]
+        )
+        push!(cstr_p, cp)
+
+        cq = JuMP.@constraint(pm.model,
+            sum(diag(Q[a])[findfirst(isequal(t), conns)] for (a, conns) in bus_arcs if t in conns)
+            + sum(diag(Qsw[a_sw])[findfirst(isequal(t), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns)
+            + sum(diag(Qt[a_trans])[findfirst(isequal(t), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns)
+            ==
+            sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
+            - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
+            - sum(qd[d][t] for (d, conns) in bus_loads if t in conns)
+            - diag(-Wr*Bt'+Wi*Gt')[idx]
+        )
+        push!(cstr_q, cq)
+    end
+
+    con(pm, nw, :lam_kcl_r)[i] = cstr_p
+    con(pm, nw, :lam_kcl_i)[i] = cstr_q
 
     if _IM.report_duals(pm)
         sol(pm, nw, :bus, i)[:lam_kcl_r] = cstr_p
