@@ -90,7 +90,7 @@ end
         result = run_mc_pf(eng, LPUBFDiagPowerModel, ipopt_solver; make_si=false)
 
         @test result["termination_status"] == LOCALLY_SOLVED
-        @test all(isapprox.(result["solution"]["bus"]["primary"]["w"], 0.99767; atol=2e-3))
+        @test all(isapprox.(result["solution"]["bus"]["primary"]["w"], 0.9904; atol=2e-3))
     end
 end
 
@@ -122,10 +122,10 @@ end
         result = run_mc_mld(mp_data, LPUBFDiagPowerModel, ipopt_solver)
 
         @test result["termination_status"] == LOCALLY_SOLVED
-        @test isapprox(result["objective"], 131.7; atol = 1e-1)
+        @test isapprox(result["objective"], 136.94; atol = 1e-1)
 
         @test all(isapprox(gen["gen_status"], 1.0; atol=1e-6) for (_,gen) in result["solution"]["gen"])
-        @test isapprox(sum(sum(load["pd"]) for (_,load) in result["solution"]["load"]), 18.69; atol=1e-2)
+        @test isapprox(sum(sum(load["pd"]) for (_,load) in result["solution"]["load"]), 18.11; atol=1e-2)
     end
 
     @testset "5-bus mld storage nfa mld" begin
