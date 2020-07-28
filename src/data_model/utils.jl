@@ -418,6 +418,38 @@ function _pad_properties_delta!(object::Dict{<:Any,<:Any}, properties::Vector{St
 end
 
 
+"pads properties to have the total number of conductors for the whole system - delta connection variant"
+function _pad_properties_delta!(object::Dict{<:Any,<:Any}, properties::Vector{String}, connections::Vector{Int}, wdg::Int, phases::Vector{Int}; invert::Bool=false)
+    @assert(all(c in phases for c in connections))
+    @assert(length(connections) in [2, 3], "A delta configuration has to have at least 2 or 3 connections!")
+    @assert(length(phases)==3, "Padding only possible to a |phases|==3!")
+
+    for property in properties
+        if haskey(object, property)
+            val = object[property][wdg]
+            val_length = length(connections)==2 ? 1 : length(connections)
+            @assert(isa(val, Vector) && length(val)==val_length)
+
+            # build tmp
+            tmp = Dict()
+            sign = invert ? -1 : 1
+            if val_length==1
+                tmp[(connections[1], connections[2])] =      val[1]
+                tmp[(connections[2], connections[1])] = sign*val[1]
+            else
+                tmp[(connections[1], connections[2])] =      val[1]
+                tmp[(connections[2], connections[3])] =      val[2]
+                tmp[(connections[3], connections[1])] =      val[3]
+            end
+            merge!(tmp, Dict((k[2], k[1])=>sign*v for (k,v) in tmp))
+            get_val(x,y) = haskey(tmp, (x,y)) ? tmp[(x,y)] : 0.0
+
+            object[property][wdg] = [get_val(phases[1], phases[2]), get_val(phases[2], phases[3]), get_val(phases[3], phases[1])]
+        end
+    end
+end
+
+
 "Filters out values of a vector or matrix for certain properties"
 function _apply_filter!(obj::Dict{String,<:Any}, properties::Vector{String}, filter::Union{Array,BitArray})
     for property in properties
