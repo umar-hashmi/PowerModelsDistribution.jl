@@ -87,7 +87,7 @@ function constraint_mc_transformer_power_dy(pm::LPUBFDiagModel, nw::Int, trans_i
     for (idx,(fc, tc)) in enumerate(zip(f_connections,t_connections))
         # rotate by 1 to get 'previous' phase
         # e.g., for nph=3: 1->3, 2->1, 3->2
-        jdx = (idx-1+nph-1)%nph+1
+        jdx = (idx-1+1)%nph+1
         fd = f_connections[jdx]
 	    JuMP.@constraint(pm.model, 3.0*(w_fr[fc] + w_fr[fd]) == 2.0*(pol*tm_scale*tm[idx])^2*w_to[tc])
     end

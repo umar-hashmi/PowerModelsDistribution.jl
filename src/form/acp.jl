@@ -319,61 +319,64 @@ function constraint_mc_power_balance(pm::_PM.AbstractACPModel, nw::Int, i::Int, 
     for (idx,t) in ungrounded_terminals
         if any(Bs[idx,jdx] != 0 for (jdx, u) in ungrounded_terminals if idx != jdx) || any(Gs[idx,jdx] != 0 for (jdx, u) in ungrounded_terminals if idx != jdx)
             cp = JuMP.@NLconstraint(pm.model,
-                sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+                  sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
                 + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
                 + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
-                ==
-                sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
-                - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
-                - sum(pd[l][t] for (l, conns) in bus_loads if t in conns)
+                - sum( pg[g][t] for (g, conns) in bus_gens if t in conns)
+                + sum( ps[s][t] for (s, conns) in bus_storage if t in conns)
+                + sum( pd[l][t] for (l, conns) in bus_loads if t in conns)
                 + ( # shunt
-                -Gs[idx,idx] * vm[t]^2
-                -sum( Gs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
-                        +Bs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                    +Gs[idx,idx] * vm[t]^2
+                    +sum( Gs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                         +Bs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
                         for (jdx,u) in ungrounded_terminals if idx != jdx)
                 )
+                ==
+                0.0
             )
             push!(cstr_p, cp)
 
             cq = JuMP.@NLconstraint(pm.model,
-                sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
-                + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
-                + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
-                ==
-                sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
-                - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
-                - sum( qd[l][t] for (l, conns) in bus_loads if t in conns)
-                + ( # shunt
-                    Bs[idx,idx] * vm[t]^2
-                    +sum( Bs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
-                        -Gs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
-                        for (jdx,u) in ungrounded_terminals if idx != jdx)
-                )
-            )
-            push!(cstr_q, cq)
-
-        else
-            cp = @smart_constraint(pm.model, [p, q, pg, qg, ps, qs, psw, qsw, pt, qt, pd, qd, vm, va],
-                  sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
-                + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
-                + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
-                ==
-                  sum(pg[g][t] for (g, conns) in bus_gens if t in conns)
-                - sum(ps[s][t] for (s, conns) in bus_storage if t in conns)
-                - sum(pd[l][t] for (l, conns) in bus_loads if t in conns)
-                - Gs[idx,idx] * vm[t]^2
-            )
-            push!(cstr_p, cp)
-
-            cq = @smart_constraint(pm.model, [p, q, pg, qg, ps, qs, psw, qsw, pt, qt, pd, qd, vm, va],
                   sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
                 + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
                 + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+                - sum( qg[g][t] for (g, conns) in bus_gens if t in conns)
+                + sum( qs[s][t] for (s, conns) in bus_storage if t in conns)
+                + sum( qd[l][t] for (l, conns) in bus_loads if t in conns)
+                + ( # shunt
+                    -Bs[idx,idx] * vm[t]^2
+                    -sum( Bs[idx,jdx] * vm[t]*vm[u] * cos(va[t]-va[u])
+                         -Gs[idx,jdx] * vm[t]*vm[u] * sin(va[t]-va[u])
+                         for (jdx,u) in ungrounded_terminals if idx != jdx)
+                )
                 ==
-                  sum(qg[g][t] for (g, conns) in bus_gens if t in conns)
-                - sum(qs[s][t] for (s, conns) in bus_storage if t in conns)
-                - sum( qd[l][t] for (l, conns) in bus_loads if t in conns)
-                + Bs[idx,idx] * vm[t]^2
+                0.0
+            )
+            push!(cstr_q, cq)
+        else
+            cp = @smart_constraint(pm.model, [p, pg, ps, psw, pt, pd, vm],
+                  sum(  p[a][t] for (a, conns) in bus_arcs if t in conns)
+                + sum(psw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+                + sum( pt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+                - sum( pg[g][t] for (g, conns) in bus_gens if t in conns)
+                + sum( ps[s][t] for (s, conns) in bus_storage if t in conns)
+                + sum( pd[l][t] for (l, conns) in bus_loads if t in conns)
+                + Gs[idx,idx] * vm[t]^2
+                ==
+                0.0
+            )
+            push!(cstr_p, cp)
+
+            cq = @smart_constraint(pm.model, [q, qg, qs, qsw, qt, qd, vm],
+                  sum(  q[a][t] for (a, conns) in bus_arcs if t in conns)
+                + sum(qsw[a][t] for (a, conns) in bus_arcs_sw if t in conns)
+                + sum( qt[a][t] for (a, conns) in bus_arcs_trans if t in conns)
+                - sum( qg[g][t] for (g, conns) in bus_gens if t in conns)
+                + sum( qs[s][t] for (s, conns) in bus_storage if t in conns)
+                + sum( qd[l][t] for (l, conns) in bus_loads if t in conns)
+                - Bs[idx,idx] * vm[t]^2
+                ==
+                0.0
             )
             push!(cstr_q, cq)
         end
@@ -504,7 +507,7 @@ function constraint_mc_transformer_power_dy(pm::_PM.AbstractACPModel, nw::Int, t
     for (idx, (fc,tc)) in enumerate(zip(f_connections,t_connections))
         # rotate by 1 to get 'previous' phase
         # e.g., for nph=3: 1->3, 2->1, 3->2
-        jdx = (idx-1+nph-1)%nph+1
+        jdx = (idx-1+1)%nph+1
         fd = f_connections[jdx]
         vd_re[idx] = JuMP.@NLexpression(pm.model, vm_fr[fc]*cos(va_fr[fc])-vm_fr[fd]*cos(va_fr[fd]))
         vd_im[idx] = JuMP.@NLexpression(pm.model, vm_fr[fc]*sin(va_fr[fc])-vm_fr[fd]*sin(va_fr[fd]))
