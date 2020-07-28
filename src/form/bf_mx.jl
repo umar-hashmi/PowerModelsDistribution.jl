@@ -40,7 +40,7 @@ function variable_mc_bus_voltage_prod_hermitian(pm::AbstractUBFModels; nw::Int=p
     W_start = v_start*v_start'
     for (id,_) in Wr
         for (i,t) in enumerate(terminals[id])
-            for (j,u) in enumerate(terminals[id])
+            for (j,u) in enumerate(terminals[id][1:i])
                 JuMP.set_start_value(Wr[id][i,j], real.(W_start)[i,j])
                 if j<i
                     Wi_ij = collect(keys(Wi[id][i,j].terms))[1]
@@ -173,14 +173,14 @@ end
 function constraint_mc_theta_ref(pm::AbstractUBFModels, nw::Int, i::Int, va_ref::Vector{<:Real})
     nconductors = length(va_ref)
 
-    Wr = var(pm, nw, :Wr)[i]
-    Wi = var(pm, nw, :Wi)[i]
+    Wr = var(pm, nw, :Wr, i)
+    Wi = var(pm, nw, :Wi, i)
 
     beta = exp.(im.*va_ref)
     gamma = beta*beta'
 
     Wr_ref = real(gamma).*Wr[1,1]
-    Wi_ref = imag(gamma).*Wr[1,1]
+    Wi_ref = imag(gamma).*Wi[1,1]
     JuMP.@constraint(pm.model, diag(Wr)[2:nconductors]        .== diag(Wr_ref)[2:nconductors]) # first equality is implied
     JuMP.@constraint(pm.model, _mat2utrivec!(Wr) .== _mat2utrivec!(Wr_ref))
     JuMP.@constraint(pm.model, _mat2utrivec!(Wi) .== _mat2utrivec!(Wi_ref))
@@ -211,15 +211,9 @@ function constraint_mc_model_voltage_magnitude_difference(pm::AbstractUBFModels,
     CCi =  var(pm, nw, :CCi)[i]
 
     #KVL over the line:
-    JuMP.@constraint(pm.model, diag(Wr_to) .== diag(
-    Wr_fr   - p_s_fr  *r' - q_s_fr*x'        - r*p_s_fr'    - x*q_s_fr'
-    + r*CCr*r' - x     *CCi*r' + x*CCr *x' + r*CCi *x'))
-    JuMP.@constraint(pm.model, _mat2utrivec!(Wr_to) .== _mat2utrivec!(
-    Wr_fr   - p_s_fr  *r' - q_s_fr*x'        - r*p_s_fr'    - x*q_s_fr'
-    + r*CCr*r' - x     *CCi*r' + x*CCr *x' + r*CCi *x'))
-    JuMP.@constraint(pm.model, _mat2utrivec!(Wi_to) .== _mat2utrivec!(
-    Wi_fr   - q_s_fr  *r' + p_s_fr*x'        - x*p_s_fr'    + r*q_s_fr'
-    + x*CCr*r' + r     *CCi*r' - r*CCr *x' + x*CCi *x'))
+    JuMP.@constraint(pm.model,          diag(Wr_to) .==          diag(Wr_fr   - p_s_fr  *r' - q_s_fr*x'        - r*p_s_fr'    - x*q_s_fr' + r*CCr*r' - x     *CCi*r' + x*CCr *x' + r*CCi *x'))
+    JuMP.@constraint(pm.model, _mat2utrivec!(Wr_to) .== _mat2utrivec!(Wr_fr   - p_s_fr  *r' - q_s_fr*x'        - r*p_s_fr'    - x*q_s_fr' + r*CCr*r' - x     *CCi*r' + x*CCr *x' + r*CCi *x'))
+    JuMP.@constraint(pm.model, _mat2utrivec!(Wi_to) .== _mat2utrivec!(Wi_fr   - q_s_fr  *r' + p_s_fr*x'        - x*p_s_fr'    + r*q_s_fr' + x*CCr*r' + r     *CCi*r' - r*CCr *x' + x*CCi *x'))
 end
 
 
@@ -737,8 +731,8 @@ function constraint_mc_load_power(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm
 
     if load["configuration"]==WYE
         if load["model"]==POWER
-            var(pm, nw, :pd)[load_id] = pd0
-            var(pm, nw, :qd)[load_id] = qd0
+            var(pm, nw, :pd)[load_id] = JuMP.Containers.DenseAxisArray(pd0, connections)
+            var(pm, nw, :qd)[load_id] = JuMP.Containers.DenseAxisArray(qd0, connections)
         elseif load["model"]==IMPEDANCE
             w = var(pm, nw, :w, bus_id)[[findfirst(isequal(c), terminals) for c in connections]]
             var(pm, nw, :pd)[load_id] = a.*w
@@ -755,8 +749,8 @@ function constraint_mc_load_power(pm::SDPUBFKCLMXModel, load_id::Int; nw::Int=pm
         Pd_bus = var(pm, nw, :Pd_bus)[load_id]
         Qd_bus = var(pm, nw, :Qd_bus)[load_id]
         for (idx,c) in enumerate(connections)
-            Pd_bus[idx,idx] = var(pm, nw, :pd)[load_id][idx]
-            Qd_bus[idx,idx] = var(pm, nw, :qd)[load_id][idx]
+            Pd_bus[idx,idx] = var(pm, nw, :pd)[load_id][c]
+            Qd_bus[idx,idx] = var(pm, nw, :qd)[load_id][c]
         end
 
     elseif load["configuration"]==DELTA
@@ -857,11 +851,10 @@ function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, terminals
                 + sum(  Psw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
                 + sum(Pt[a_trans][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns && u in conns)
                 ==
-                sum(        Pg[g][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (g, conns) in bus_gens if t in conns && u in conns)
+                  sum(      Pg[g][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (g, conns) in bus_gens if t in conns && u in conns)
                 - sum(      Pd[d][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (d, conns) in bus_loads if t in conns && u in conns)
                 - diag(Wr*Gt'+Wi*Bt')[idx]
             )
-            push!(cstr_p, cp)
 
             cq = JuMP.@constraint(pm.model,
                   sum(       Q[a][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a, conns) in bus_arcs if t in conns && u in conns)
