@@ -245,7 +245,7 @@ function variable_mx_real_skewsymmetric(model::JuMP.Model, indices::Array{T,1}, 
                 # create the lower triangle element (n,m) for all indices
                 # if diagonal element (n,m) is zero
                 if m==n && set_diag_to_zero
-                    mat_nm = Dict{T, Float64}([(index, 0.0) for index in indices])
+                    mat_nm = Dict{T, Float64}(index => 0.0)
                 # otherwise, create JuMP variables
                 else
                     mat_nm = _make_matrix_variable_element(model, [index], n, m; upper_bound=upper_bound, lower_bound=lower_bound, varname=varname)

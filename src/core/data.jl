@@ -157,12 +157,11 @@ The returned bounds are for the pairs 1->2, 2->3, 3->1
 function _calc_bus_vm_ll_bounds(bus::Dict; vdmin_eps=0.1)
     vmax = bus["vmax"]
     vmin = bus["vmin"]
-    terminals = bus["terminals"]
     if haskey(bus, "vm_ll_max")
         vdmax = bus["vm_ll_max"]
     else
         # implied valid upper bound
-        vdmax = _mat_mult_rm_nan([1 1 0; 0 1 1; 1 0 1][terminals,terminals], vmax)
+        vdmax = _mat_mult_rm_nan([1 1 0; 0 1 1; 1 0 1], vmax)
     end
     if haskey(bus, "vm_ll_min")
         vdmin = bus["vm_ll_min"]

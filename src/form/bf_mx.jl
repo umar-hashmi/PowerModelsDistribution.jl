@@ -67,7 +67,7 @@ function constraint_mc_branch_current_series_product_hermitian(pm::AbstractUBFMo
     buses = ref(pm, nw, :bus)
 
     branch_ids = collect(keys(branches))
-    branch_connections = Dict{Int,Vector{Int}}(l => br["f_connections"] for (l,br) in ref(pm, nw, :branch))
+    connections = Dict{Int,Vector{Int}}(l => br["f_connections"] for (l,br) in ref(pm, nw, :branch))
 
     if bounded
         # calculate max series current for each branch
@@ -78,9 +78,9 @@ function constraint_mc_branch_current_series_product_hermitian(pm::AbstractUBFMo
             cmax[key] = _calc_branch_series_current_max(branch, bus_fr, bus_to)
         end
         # create matrix variables
-        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, branch_connections; sqrt_upper_bound=cmax, set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
+        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, connections; sqrt_upper_bound=cmax, set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
     else
-        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, branch_connections; set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
+        (Lr,Li) = variable_mx_hermitian(pm.model, branch_ids, connections; set_lower_bound_diag_to_zero=true, name="CC", prefix="$nw")
     end
 
     for (id,L) in Lr
@@ -211,9 +211,9 @@ function constraint_mc_model_voltage_magnitude_difference(pm::AbstractUBFModels,
     CCi =  var(pm, nw, :CCi)[i]
 
     #KVL over the line:
-    JuMP.@constraint(pm.model,          diag(Wr_to) .==          diag(Wr_fr   - p_s_fr  *r' - q_s_fr*x'        - r*p_s_fr'    - x*q_s_fr' + r*CCr*r' - x     *CCi*r' + x*CCr *x' + r*CCi *x'))
-    JuMP.@constraint(pm.model, _mat2utrivec!(Wr_to) .== _mat2utrivec!(Wr_fr   - p_s_fr  *r' - q_s_fr*x'        - r*p_s_fr'    - x*q_s_fr' + r*CCr*r' - x     *CCi*r' + x*CCr *x' + r*CCi *x'))
-    JuMP.@constraint(pm.model, _mat2utrivec!(Wi_to) .== _mat2utrivec!(Wi_fr   - q_s_fr  *r' + p_s_fr*x'        - x*p_s_fr'    + r*q_s_fr' + x*CCr*r' + r     *CCi*r' - r*CCr *x' + x*CCi *x'))
+    JuMP.@constraint(pm.model,          diag(Wr_to) .==          diag(Wr_fr - p_s_fr *r' - q_s_fr*x' - r*p_s_fr' - x*q_s_fr' + r*CCr*r' - x*CCi*r' + x*CCr*x' + r*CCi*x'))
+    JuMP.@constraint(pm.model, _mat2utrivec!(Wr_to) .== _mat2utrivec!(Wr_fr - p_s_fr *r' - q_s_fr*x' - r*p_s_fr' - x*q_s_fr' + r*CCr*r' - x*CCi*r' + x*CCr*x' + r*CCi*x'))
+    JuMP.@constraint(pm.model, _mat2utrivec!(Wi_to) .== _mat2utrivec!(Wi_fr - q_s_fr *r' + p_s_fr*x' - x*p_s_fr' + r*q_s_fr' + x*CCr*r' + r*CCi*r' - r*CCr*x' + x*CCi*x'))
 end
 
 
@@ -390,11 +390,11 @@ function variable_mc_load_power(pm::AbstractUBFModels, load_ids::Vector{Int}; nw
     connections = Dict(i => load["connections"] for (i,load) in ref(pm, nw, :load))
 
     pd = Dict(i => JuMP.@variable(pm.model,
-        [c in 1:length(connections[i])], base_name="$(nw)_pd_$(i)"
+        [c in connections[i]], base_name="$(nw)_pd_$(i)"
         ) for i in load_ids
     )
     qd = Dict(i => JuMP.@variable(pm.model,
-        [c in 1:length(connections[i])], base_name="$(nw)_qd_$(i)"
+        [c in connections[i]], base_name="$(nw)_qd_$(i)"
         ) for i in load_ids
     )
 
@@ -403,10 +403,12 @@ function variable_mc_load_power(pm::AbstractUBFModels, load_ids::Vector{Int}; nw
             load = ref(pm, nw, :load, i)
             bus = ref(pm, nw, :bus, load["load_bus"])
             pmin, pmax, qmin, qmax = _calc_load_pq_bounds(load, bus)
-            set_lower_bound.(pd[i], pmin)
-            set_upper_bound.(pd[i], pmax)
-            set_lower_bound.(qd[i], qmin)
-            set_upper_bound.(qd[i], qmax)
+            for (idx,c) in enumerate(connections[i])
+                set_lower_bound(pd[i][c], pmin[idx])
+                set_upper_bound(pd[i][c], pmax[idx])
+                set_lower_bound(qd[i][c], qmin[idx])
+                set_upper_bound(qd[i][c], qmax[idx])
+            end
         end
     end
 
@@ -845,7 +847,7 @@ function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, terminals
     ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
     for (idx, t) in ungrounded_terminals
-        for (jdx, u) in ungrounded_terminals
+        for (jdx, u) in ungrounded_terminals[1:idx]
             cp = JuMP.@constraint(pm.model,
                   sum(       P[a][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a, conns) in bus_arcs if t in conns && u in conns)
                 + sum(  Psw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
@@ -855,6 +857,7 @@ function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, terminals
                 - sum(      Pd[d][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (d, conns) in bus_loads if t in conns && u in conns)
                 - diag(Wr*Gt'+Wi*Bt')[idx]
             )
+            push!(cstr_p, cp)
 
             cq = JuMP.@constraint(pm.model,
                   sum(       Q[a][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a, conns) in bus_arcs if t in conns && u in conns)
