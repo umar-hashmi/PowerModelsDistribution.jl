@@ -847,11 +847,11 @@ function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, terminals
     ungrounded_terminals = [(idx,t) for (idx,t) in enumerate(terminals) if !grounded[idx]]
 
     for (idx, t) in ungrounded_terminals
-        for (jdx, u) in ungrounded_terminals[1:idx]
+        for (jdx, u) in ungrounded_terminals
             cp = JuMP.@constraint(pm.model,
                   sum(       P[a][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a, conns) in bus_arcs if t in conns && u in conns)
-                + sum(  Psw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
-                + sum(Pt[a_trans][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns && u in conns)
+                # + sum(  Psw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
+                # + sum(Pt[a_trans][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns && u in conns)
                 ==
                   sum(      Pg[g][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (g, conns) in bus_gens if t in conns && u in conns)
                 - sum(      Pd[d][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (d, conns) in bus_loads if t in conns && u in conns)
@@ -861,8 +861,8 @@ function constraint_mc_power_balance(pm::KCLMXModels, nw::Int, i::Int, terminals
 
             cq = JuMP.@constraint(pm.model,
                   sum(       Q[a][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a, conns) in bus_arcs if t in conns && u in conns)
-                + sum(  Qsw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
-                + sum(Qt[a_trans][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns && u in conns)
+                # + sum(  Qsw[a_sw][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_sw, conns) in bus_arcs_sw if t in conns && u in conns)
+                # + sum(Qt[a_trans][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (a_trans, conns) in bus_arcs_trans if t in conns && u in conns)
                 ==
                   sum(      Qg[g][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (g, conns) in bus_gens if t in conns && u in conns)
                 - sum(      Qd[d][findfirst(isequal(t), conns),findfirst(isequal(u), conns)] for (d, conns) in bus_loads if t in conns && u in conns)
