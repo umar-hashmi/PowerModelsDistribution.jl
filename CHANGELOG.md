@@ -22,6 +22,7 @@
 - Removes phase projection by default, but keeps phase projection for delta connected components for now (breaking)
 - Adds `apply_phase_projection_delta!` to project phases of delta connected components
 - Fixes grounding logic for generator and solar objects
+- Fixes bug in parsing of file paths on windows in redirect/compile dss commands
 
 ## v0.9.3
 
